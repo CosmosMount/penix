@@ -28,6 +28,7 @@ using rx_handler = void (*)(port port, const rx_frame& frame, void* user_data);
 
 UART_HandleTypeDef* handle_of(std::size_t index) noexcept;
 std::size_t index_of(UART_HandleTypeDef* handle) noexcept;
+bool port_enabled(port port) noexcept;
 void setup_dma(UART_HandleTypeDef* handle) noexcept;
 
 void receive(UART_HandleTypeDef* handle, uint16_t size);

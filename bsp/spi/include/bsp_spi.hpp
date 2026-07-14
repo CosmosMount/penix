@@ -1,5 +1,6 @@
 #pragma once
 
+#include "config.hpp"
 #include "spi.h"
 #include "usertypes.hpp"
 
@@ -19,6 +20,8 @@ enum class cs : uint8_t
 };
 
 types::status wait_ready(bus bus, uint32_t timeout_ms = 1000);
+bool bus_enabled(bus bus) noexcept;
+SPI_HandleTypeDef* handle_of(bus bus) noexcept;
 types::status init(bus bus);
 types::status transmit(bus bus, const uint8_t* data, size_t len, uint32_t timeout_ms);
 types::status receive(bus bus, uint8_t* data, size_t len, uint32_t timeout_ms);

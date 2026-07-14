@@ -10,6 +10,67 @@ namespace bsp::can
 namespace
 {
 
+const bus_config* config_of(std::size_t index) noexcept
+{
+    return index < bus_count ? &configs[index] : nullptr;
+}
+
+FDCAN_HandleTypeDef* handle_from_id(handle_id id) noexcept
+{
+    switch (id)
+    {
+    case handle_id::fdcan1:
+        return &hfdcan1;
+    case handle_id::fdcan2:
+        return &hfdcan2;
+    case handle_id::fdcan3:
+        return &hfdcan3;
+    default:
+        return nullptr;
+    }
+}
+
+} // namespace
+
+FDCAN_HandleTypeDef* handle_of(bus b) noexcept
+{
+    const bus_config* cfg = config_of(static_cast<std::size_t>(b));
+    return cfg != nullptr && cfg->enabled ? handle_from_id(cfg->handle) : nullptr;
+}
+
+bus bus_of(FDCAN_HandleTypeDef* handle) noexcept
+{
+    for (std::size_t i = 0; i < bus_count; ++i)
+    {
+        if (handle_of(static_cast<bus>(i)) == handle)
+        {
+            return static_cast<bus>(i);
+        }
+    }
+    return static_cast<bus>(0);
+}
+
+bool bus_enabled(std::size_t index) noexcept
+{
+    const bus_config* cfg = config_of(index);
+    return cfg != nullptr && cfg->enabled;
+}
+
+bus_type configured_bus_type(std::size_t index) noexcept
+{
+    const bus_config* cfg = config_of(index);
+    return cfg != nullptr ? cfg->type : bus_type::classic;
+}
+
+id_type filter_id_type_of(std::size_t index) noexcept
+{
+    const bus_config* cfg = config_of(index);
+    return cfg != nullptr ? cfg->filter_id_type : id_type::standard;
+}
+
+namespace
+{
+
 struct rx_slot
 {
     rx_handler handler = nullptr;

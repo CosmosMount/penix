@@ -21,6 +21,9 @@ using rx_handler = void (*)(bus bus, const rx_frame& frame, void* user_data);
 
 FDCAN_HandleTypeDef* handle_of(bus b) noexcept;
 bus bus_of(FDCAN_HandleTypeDef* handle) noexcept;
+bool bus_enabled(std::size_t index) noexcept;
+bus_type configured_bus_type(std::size_t index) noexcept;
+id_type filter_id_type_of(std::size_t index) noexcept;
 
 void receive(FDCAN_HandleTypeDef* handle, uint32_t rx_fifo, bus_type mode);
 void handle_error(FDCAN_HandleTypeDef* handle, uint32_t error_status_its);

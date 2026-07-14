@@ -6,16 +6,21 @@ namespace bsp::spi
 namespace
 {
 
-SPI_HandleTypeDef* handle_of(bus bus)
+const bus_config* config_of(std::size_t index) noexcept
 {
-    switch (bus)
+    return index < bus_count ? &configs[index] : nullptr;
+}
+
+SPI_HandleTypeDef* handle_from_id(handle_id id) noexcept
+{
+    switch (id)
     {
-        case bus::spi2:
-            return &hspi2;
-        case bus::spi6:
-            return &hspi6;
-        default:
-            return nullptr;
+    case handle_id::spi2:
+        return &hspi2;
+    case handle_id::spi6:
+        return &hspi6;
+    default:
+        return nullptr;
     }
 }
 
@@ -35,8 +40,25 @@ void cs_set(cs line, bool selected)
     }
 }
 
+bool bus_enabled(bus bus) noexcept
+{
+    const bus_config* cfg = config_of(static_cast<std::size_t>(bus));
+    return cfg != nullptr && cfg->enabled;
+}
+
+SPI_HandleTypeDef* handle_of(bus bus) noexcept
+{
+    const bus_config* cfg = config_of(static_cast<std::size_t>(bus));
+    return cfg != nullptr && cfg->enabled ? handle_from_id(cfg->handle) : nullptr;
+}
+
 types::status init(bus bus)
 {
+    if (!bus_enabled(bus))
+    {
+        return types::status::not_configured;
+    }
+
     switch (bus)
     {
         case bus::spi2:
@@ -52,6 +74,11 @@ types::status init(bus bus)
 
 types::status wait_ready(bus bus, uint32_t timeout_ms)
 {
+    if (!bus_enabled(bus))
+    {
+        return types::status::not_configured;
+    }
+
     SPI_HandleTypeDef* handle = handle_of(bus);
     if (handle == nullptr)
     {
@@ -72,6 +99,11 @@ types::status wait_ready(bus bus, uint32_t timeout_ms)
 
 types::status transmit(bus bus, const uint8_t* data, size_t len, uint32_t timeout_ms)
 {
+    if (!bus_enabled(bus))
+    {
+        return types::status::not_configured;
+    }
+
     SPI_HandleTypeDef* handle = handle_of(bus);
     if (handle == nullptr || data == nullptr || len == 0)
     {
@@ -89,6 +121,11 @@ types::status transmit(bus bus, const uint8_t* data, size_t len, uint32_t timeou
 
 types::status receive(bus bus, uint8_t* data, size_t len, uint32_t timeout_ms)
 {
+    if (!bus_enabled(bus))
+    {
+        return types::status::not_configured;
+    }
+
     SPI_HandleTypeDef* handle = handle_of(bus);
     if (handle == nullptr || data == nullptr || len == 0)
     {

@@ -6,10 +6,6 @@ if(NOT DEFINED IOC OR NOT DEFINED PARAMS OR NOT DEFINED OUT_DIR)
     message(FATAL_ERROR "generate_config.cmake requires -DIOC=... -DPARAMS=... -DOUT_DIR=...")
 endif()
 
-if(NOT DEFINED CACHE)
-    set(CACHE "")
-endif()
-
 pnx_ioc_parse("${IOC}")
 
 file(READ "${PARAMS}" params_json)
@@ -182,7 +178,7 @@ set(tx_delay_filter 13)
 set(can_enabled_list "")
 set(can_type_list "")
 set(can_id_type_list "")
-set(can_handles_list "")
+set(can_config_list "")
 set(can_bus_enum_entries "")
 set(can_bus_index 0)
 
@@ -193,20 +189,20 @@ foreach(hw ${PNX_IOC_FDCAN_HW})
 
     pnx_ioc_fdcan_frame_format("${PNX_IOC_LINES}" "${hw_lower}" bus_type)
     if(bus_type STREQUAL "fd")
-        list(APPEND can_type_list "bus_type::fd")
+        set(can_type_expr "bus_type::fd")
     else()
-        list(APPEND can_type_list "bus_type::classic")
+        set(can_type_expr "bus_type::classic")
     endif()
+    list(APPEND can_type_list "${can_type_expr}")
 
     pnx_ioc_fdcan_ext_filters("${PNX_IOC_LINES}" "${hw_lower}" ext_filters)
     if(ext_filters GREATER 0)
-        list(APPEND can_id_type_list "id_type::extended")
+        set(can_id_type_expr "id_type::extended")
     else()
-        list(APPEND can_id_type_list "id_type::standard")
+        set(can_id_type_expr "id_type::standard")
     endif()
-
-    pnx_hw_to_handle("${hw_lower}" handle_expr)
-    list(APPEND can_handles_list "${handle_expr}")
+    list(APPEND can_id_type_list "${can_id_type_expr}")
+    list(APPEND can_config_list "{ true, handle_id::${hw_lower}, ${can_type_expr}, ${can_id_type_expr} }")
 
     if(can_bus_index GREATER 0)
         string(APPEND can_bus_enum_entries ", ")
@@ -218,42 +214,24 @@ endforeach()
 list(JOIN can_enabled_list ", " can_enabled_cpp)
 list(JOIN can_type_list ", " can_type_cpp)
 list(JOIN can_id_type_list ", " can_id_type_cpp)
-list(JOIN can_handles_list ", " can_handles_cpp)
+list(JOIN can_config_list ", " can_config_cpp)
 list(LENGTH PNX_IOC_FDCAN_HW can_bus_count)
 
 set(usart_enabled_list "")
-set(usart_handles_list "")
-set(usart_setup_dma_body "")
+set(usart_config_list "")
 set(usart_port_enum_entries "")
 set(uart_binding_body "")
-set(dma_extern_block "")
 set(usart_port_index 0)
 
 foreach(hw ${PNX_IOC_UART_HW})
     string(TOLOWER "${hw}" hw_lower)
 
-    list(APPEND usart_enabled_list "true")
-
-    pnx_hw_to_handle("${hw_lower}" handle_expr)
-    list(APPEND usart_handles_list "${handle_expr}")
-
     pnx_ioc_uart_has_dma("${PNX_IOC_LINES}" "${hw_lower}" "RX" has_rx_dma)
     pnx_ioc_uart_has_dma("${PNX_IOC_LINES}" "${hw_lower}" "TX" has_tx_dma)
-
-    string(APPEND usart_setup_dma_body "    if (handle == ${handle_expr}) {\n")
-    if(has_rx_dma)
-        pnx_hw_to_dma_handle("${hw_lower}" "rx" rx_dma_expr)
-        string(APPEND dma_extern_block "extern DMA_HandleTypeDef hdma_${hw_lower}_rx;\n")
-        string(APPEND usart_setup_dma_body "        __HAL_DMA_DISABLE_IT(${rx_dma_expr}, DMA_IT_HT);\n")
-        string(APPEND usart_setup_dma_body "        __HAL_DMA_ENABLE_IT(${rx_dma_expr}, DMA_IT_TC);\n")
-    endif()
-    if(has_tx_dma)
-        pnx_hw_to_dma_handle("${hw_lower}" "tx" tx_dma_expr)
-        string(APPEND dma_extern_block "extern DMA_HandleTypeDef hdma_${hw_lower}_tx;\n")
-        string(APPEND usart_setup_dma_body "        __HAL_DMA_DISABLE_IT(${tx_dma_expr}, DMA_IT_HT);\n")
-        string(APPEND usart_setup_dma_body "        __HAL_DMA_ENABLE_IT(${tx_dma_expr}, DMA_IT_TC);\n")
-    endif()
-    string(APPEND usart_setup_dma_body "        return;\n    }\n")
+    pnx_to_json_bool("${has_rx_dma}" has_rx_dma_cpp)
+    pnx_to_json_bool("${has_tx_dma}" has_tx_dma_cpp)
+    list(APPEND usart_enabled_list "true")
+    list(APPEND usart_config_list "{ true, handle_id::${hw_lower}, ${has_rx_dma_cpp}, ${has_tx_dma_cpp} }")
 
     if(usart_port_index GREATER 0)
         string(APPEND uart_binding_body "\n")
@@ -268,8 +246,44 @@ foreach(hw ${PNX_IOC_UART_HW})
 endforeach()
 
 list(JOIN usart_enabled_list ", " usart_enabled_cpp)
-list(JOIN usart_handles_list ", " usart_handles_cpp)
+list(JOIN usart_config_list ", " usart_config_cpp)
 list(LENGTH PNX_IOC_UART_HW usart_port_count)
+
+if(PNX_IOC_HAS_SPI2)
+    set(spi2_enabled "true")
+else()
+    set(spi2_enabled "false")
+endif()
+if(PNX_IOC_HAS_SPI6)
+    set(spi6_enabled "true")
+else()
+    set(spi6_enabled "false")
+endif()
+set(spi_bus_count 2)
+set(spi_config_cpp "{ ${spi2_enabled}, handle_id::spi2 }, { ${spi6_enabled}, handle_id::spi6 }")
+
+if(PNX_IOC_HAS_TIM3)
+    set(pwm_tim3_ch4_enabled "true")
+    set(pwm_tim3_ch4_timer "timer_id::tim3")
+    set(pwm_tim3_ch4_channel "channel_id::ch4")
+else()
+    set(pwm_tim3_ch4_enabled "false")
+    set(pwm_tim3_ch4_timer "timer_id::none")
+    set(pwm_tim3_ch4_channel "channel_id::none")
+endif()
+if(PNX_IOC_HAS_TIM12)
+    set(pwm_tim12_ch2_enabled "true")
+    set(pwm_tim12_ch2_timer "timer_id::tim12")
+    set(pwm_tim12_ch2_channel "channel_id::ch2")
+else()
+    set(pwm_tim12_ch2_enabled "false")
+    set(pwm_tim12_ch2_timer "timer_id::none")
+    set(pwm_tim12_ch2_channel "channel_id::none")
+endif()
+set(pwm_channel_count 2)
+set(pwm_timer_clock_hz 240000000)
+set(pwm_config_cpp
+    "{ ${pwm_tim3_ch4_enabled}, ${pwm_tim3_ch4_timer}, ${pwm_tim3_ch4_channel}, ${pwm_timer_clock_hz}U }, { ${pwm_tim12_ch2_enabled}, ${pwm_tim12_ch2_timer}, ${pwm_tim12_ch2_channel}, ${pwm_timer_clock_hz}U }")
 
 pnx_ioc_uart_index("${PNX_IOC_UART_HW}" "${remoter_uart}" dr16_port_idx)
 pnx_ioc_uart_index("${PNX_IOC_UART_HW}" "uart7" vt03_port_idx)
@@ -402,97 +416,8 @@ string(APPEND params_usb_body "${_line}")
 if(params_usb_body STREQUAL "")
     string(CONCAT params_usb_body
         "  inline constexpr std::uint32_t read_thread_priority = 5${generated_semicolon_token}\n"
-        "  inline constexpr std::uint32_t write_thread_priority = 11${generated_semicolon_token}\n"
+        "  inline constexpr std::uint32_t write_thread_priority = 5${generated_semicolon_token}\n"
         "  inline constexpr std::uint32_t period_ticks = 2${generated_semicolon_token}\n")
-endif()
-
-# --- gate API ---
-set(gate_api_body "")
-if(HAS_AHRS)
-    string(APPEND gate_api_body
-"inline auto& ahrs() { return ::ahrs::service::instance(); }\n")
-else()
-    string(APPEND gate_api_body
-"struct ahrs_unavailable {};\n"
-"template<typename T = void>\n"
-"ahrs_unavailable ahrs() {\n"
-"    static_assert(HAS_AHRS, \"ahrs unavailable: SPI2 not enabled in board/board.ioc\");\n"
-"    return {};\n"
-"}\n")
-endif()
-
-if(HAS_REMOTER)
-    string(APPEND gate_api_body
-"inline auto& remoter() { return ::remoter::dr16::instance(); }\n")
-else()
-    string(APPEND gate_api_body
-"struct remoter_unavailable {};\n"
-"template<typename T = void>\n"
-"remoter_unavailable remoter() {\n"
-"    static_assert(HAS_REMOTER, \"remoter unavailable: remoter UART missing or lacks RX DMA in board/board.ioc\");\n"
-"    return {};\n"
-"}\n")
-endif()
-
-if(HAS_VT03)
-    string(APPEND gate_api_body
-"inline auto& vt03() { return ::remoter::vt03::instance(); }\n")
-else()
-    string(APPEND gate_api_body
-"struct vt03_unavailable {};\n"
-"template<typename T = void>\n"
-"vt03_unavailable vt03() {\n"
-"    static_assert(HAS_VT03, \"vt03 unavailable: UART7 missing or lacks RX DMA in board/board.ioc\");\n"
-"    return {};\n"
-"}\n")
-endif()
-
-if(HAS_REFEREE)
-    string(APPEND gate_api_body
-"inline auto& referee() { return ::referee::service::instance(); }\n")
-else()
-    string(APPEND gate_api_body
-"struct referee_unavailable {};\n"
-"template<typename T = void>\n"
-"referee_unavailable referee() {\n"
-"    static_assert(HAS_REFEREE, \"referee unavailable: referee UART not enabled in board/board.ioc\");\n"
-"    return {};\n"
-"}\n")
-endif()
-
-if(HAS_UI)
-    string(APPEND gate_api_body
-"inline auto& ui() { return ::ui::canvas::instance(); }\n")
-else()
-    string(APPEND gate_api_body
-"struct ui_unavailable {};\n"
-"template<typename T = void>\n"
-"ui_unavailable ui() {\n"
-"    static_assert(HAS_UI, \"ui unavailable: referee UART not enabled in board/board.ioc\");\n"
-"    return {};\n"
-"}\n")
-endif()
-
-# --- modules.hpp ---
-set(modules_includes "#pragma once\n// Generated from IOC + params.json. Do not edit.\n\n")
-string(APPEND modules_includes "#include \"messages.hpp\"\n#include \"msg.hpp\"\n")
-if(HAS_AHRS)
-    string(APPEND modules_includes "#include \"ahrs.hpp\"\n")
-endif()
-if(HAS_REMOTER)
-    string(APPEND modules_includes "#include \"dr16.hpp\"\n")
-endif()
-if(HAS_VT03)
-    string(APPEND modules_includes "#include \"vt03.hpp\"\n")
-endif()
-if(HAS_REFEREE)
-    string(APPEND modules_includes "#include \"referee.hpp\"\n")
-endif()
-if(HAS_UI)
-    string(APPEND modules_includes "#include \"ui.hpp\"\n")
-endif()
-if(HAS_LED)
-    string(APPEND modules_includes "#include \"led.hpp\"\n")
 endif()
 
 if(MOTOR_DJI)
@@ -514,10 +439,6 @@ endif()
 file(MAKE_DIRECTORY "${OUT_DIR}")
 
 set(CONFIG_HPP "${OUT_DIR}/config.hpp")
-set(CONFIG_CAN_TABLES_CPP "${OUT_DIR}/config_can_tables.cpp")
-set(CONFIG_USART_TABLES_CPP "${OUT_DIR}/config_usart_tables.cpp")
-set(MODULES_HPP "${OUT_DIR}/modules.hpp")
-set(APP_GATE_HPP "${OUT_DIR}/app_gate.hpp")
 
 file(WRITE "${CONFIG_HPP}"
 "#pragma once\n"
@@ -541,27 +462,82 @@ file(WRITE "${CONFIG_HPP}"
 "#define MOTOR_DJI ${MOTOR_DJI_C}\n"
 "#define MOTOR_DM ${MOTOR_DM_C}\n"
 "#define MOTOR_LK ${MOTOR_LK_C}\n\n"
+"namespace config::feature {\n\n"
+"inline constexpr bool hw_has_usb = ${HW_HAS_USB};\n"
+"inline constexpr bool enable_usbx = ${ENABLE_USBX_C};\n"
+"inline constexpr bool has_ahrs = ${HAS_AHRS};\n"
+"inline constexpr bool has_remoter = ${HAS_REMOTER};\n"
+"inline constexpr bool has_vt03 = ${HAS_VT03};\n"
+"inline constexpr bool enable_dr16 = ${ENABLE_DR16};\n"
+"inline constexpr bool enable_vt03 = ${ENABLE_VT03};\n"
+"inline constexpr bool has_referee = ${HAS_REFEREE};\n"
+"inline constexpr bool has_ui = ${HAS_UI};\n"
+"inline constexpr bool has_led = ${HAS_LED};\n"
+"inline constexpr bool has_pwm_tim3_ch4 = ${HAS_PWM_TIM3_CH4};\n"
+"inline constexpr bool has_pwm_tim12_ch2 = ${HAS_PWM_TIM12_CH2};\n"
+"inline constexpr bool has_motors = ${HAS_MOTORS};\n"
+"inline constexpr bool motor_dji = ${MOTOR_DJI_C};\n"
+"inline constexpr bool motor_dm = ${MOTOR_DM_C};\n"
+"inline constexpr bool motor_lk = ${MOTOR_LK_C};\n\n"
+"} // namespace config::feature\n\n"
 "namespace bsp {\n"
 "namespace can {\n\n"
 "enum class bus_type : std::uint8_t { classic = 0, fd = 1 };\n"
 "enum class id_type : std::uint8_t { standard = 0, extended = 1 };\n"
+"enum class handle_id : std::uint8_t { none = 0, fdcan1, fdcan2, fdcan3 };\n"
 "enum class bus : std::uint8_t { ${can_bus_enum_entries} };\n\n"
+"struct bus_config\n"
+"{\n"
+"    bool enabled = false;\n"
+"    handle_id handle = handle_id::none;\n"
+"    bus_type type = bus_type::classic;\n"
+"    id_type filter_id_type = id_type::standard;\n"
+"};\n\n"
 "inline constexpr std::size_t bus_count = ${can_bus_count};\n"
 "inline constexpr std::size_t max_rx_callbacks = ${can_max_rx_callbacks};\n"
 "inline constexpr std::uint32_t tx_delay_comp_tdc = ${tx_delay_tdc};\n"
 "inline constexpr std::uint32_t tx_delay_comp_filter = ${tx_delay_filter};\n\n"
+"inline constexpr std::array<bus_config, bus_count> configs = {{ ${can_config_cpp} }};\n"
 "inline constexpr std::array<bool, bus_count> enabled = { ${can_enabled_cpp} };\n"
 "inline constexpr std::array<bus_type, bus_count> configured_bus_types = { ${can_type_cpp} };\n"
 "inline constexpr std::array<id_type, bus_count> filter_id_types = { ${can_id_type_cpp} };\n\n"
-"inline constexpr bool bus_enabled(std::size_t i) { return i < bus_count && enabled[i]; }\n"
-"inline constexpr bus_type configured_bus_type(std::size_t i) { return i < bus_count ? configured_bus_types[i] : bus_type::classic; }\n"
-"inline constexpr id_type filter_id_type_of(std::size_t i) { return i < bus_count ? filter_id_types[i] : id_type::standard; }\n\n"
 "} // namespace can\n\n"
+"namespace spi {\n\n"
+"enum class handle_id : std::uint8_t { none = 0, spi2, spi6 };\n\n"
+"struct bus_config\n"
+"{\n"
+"    bool enabled = false;\n"
+"    handle_id handle = handle_id::none;\n"
+"};\n\n"
+"inline constexpr std::size_t bus_count = ${spi_bus_count};\n"
+"inline constexpr std::array<bus_config, bus_count> configs = {{ ${spi_config_cpp} }};\n\n"
+"} // namespace spi\n\n"
+"namespace pwm {\n\n"
+"enum class timer_id : std::uint8_t { none = 0, tim3, tim12 };\n"
+"enum class channel_id : std::uint8_t { none = 0, ch1, ch2, ch3, ch4 };\n\n"
+"struct channel_config\n"
+"{\n"
+"    bool enabled = false;\n"
+"    timer_id timer = timer_id::none;\n"
+"    channel_id channel = channel_id::none;\n"
+"    std::uint32_t timer_clock_hz = 0;\n"
+"};\n\n"
+"inline constexpr std::size_t channel_count = ${pwm_channel_count};\n"
+"inline constexpr std::array<channel_config, channel_count> configs = {{ ${pwm_config_cpp} }};\n\n"
+"} // namespace pwm\n\n"
 "namespace usart {\n\n"
 "using port = std::size_t;\n\n"
+"enum class handle_id : std::uint8_t { none = 0, uart5, uart7, usart1 };\n\n"
+"struct port_config\n"
+"{\n"
+"    bool enabled = false;\n"
+"    handle_id handle = handle_id::none;\n"
+"    bool has_rx_dma = false;\n"
+"    bool has_tx_dma = false;\n"
+"};\n\n"
 "inline constexpr std::size_t port_count = ${usart_port_count};\n"
+"inline constexpr std::array<port_config, port_count> configs = {{ ${usart_config_cpp} }};\n"
 "inline constexpr std::array<bool, port_count> enabled = { ${usart_enabled_cpp} };\n\n"
-"inline constexpr bool port_enabled(std::size_t i) { return i < port_count && enabled[i]; }\n\n"
 "} // namespace usart\n"
 "} // namespace bsp\n\n"
 "namespace app {\n"
@@ -593,105 +569,4 @@ file(READ "${CONFIG_HPP}" config_hpp_raw)
 string(REPLACE "${generated_semicolon_token}" ";" config_hpp_fixed "${config_hpp_raw}")
 file(WRITE "${CONFIG_HPP}" "${config_hpp_fixed}")
 
-file(WRITE "${APP_GATE_HPP}"
-"#pragma once\n"
-"// Generated from board/board.ioc + config/params.json. Do not edit.\n\n"
-"#include \"config.hpp\"\n"
-"#include \"modules.hpp\"\n\n"
-"namespace app {\n\n"
-"${gate_api_body}"
-"} // namespace app\n"
-)
-
-file(WRITE "${CONFIG_CAN_TABLES_CPP}"
-"#include \"bsp_can.hpp\"\n\n"
-"namespace bsp {\n"
-"namespace can {\n\n"
-"static FDCAN_HandleTypeDef* const handles[bus_count] = { ${can_handles_cpp} };\n\n"
-"FDCAN_HandleTypeDef* handle_of(bus b) noexcept\n"
-"{\n"
-"    const auto idx = static_cast<std::size_t>(b);\n"
-"    return idx < bus_count ? handles[idx] : nullptr;\n"
-"}\n\n"
-"bus bus_of(FDCAN_HandleTypeDef* handle) noexcept\n"
-"{\n"
-"    for (std::size_t i = 0; i < bus_count; ++i)\n"
-"    {\n"
-"        if (handles[i] == handle)\n"
-"        {\n"
-"            return static_cast<bus>(i);\n"
-"        }\n"
-"    }\n"
-"    return static_cast<bus>(0);\n"
-"}\n\n"
-"} // namespace can\n"
-"} // namespace bsp\n"
-)
-
-file(WRITE "${CONFIG_USART_TABLES_CPP}"
-"#include \"bsp_usart.hpp\"\n\n"
-"extern \"C\" {\n"
-"${dma_extern_block}"
-"}\n\n"
-"namespace bsp {\n"
-"namespace usart {\n\n"
-"static UART_HandleTypeDef* const handles[port_count] = { ${usart_handles_cpp} };\n\n"
-"UART_HandleTypeDef* handle_of(std::size_t index) noexcept\n"
-"{\n"
-"    return index < port_count ? handles[index] : nullptr;\n"
-"}\n\n"
-"std::size_t index_of(UART_HandleTypeDef* handle) noexcept\n"
-"{\n"
-"    for (std::size_t i = 0; i < port_count; ++i)\n"
-"    {\n"
-"        if (handles[i] == handle)\n"
-"        {\n"
-"            return i;\n"
-"        }\n"
-"    }\n"
-"    return port_count;\n"
-"}\n\n"
-"void setup_dma(UART_HandleTypeDef* handle) noexcept\n"
-"{\n"
-"${usart_setup_dma_body}"
-"}\n\n"
-"} // namespace usart\n"
-"} // namespace bsp\n"
-)
-
-file(WRITE "${MODULES_HPP}" "${modules_includes}")
-
-if(CACHE)
-    get_filename_component(cache_dir "${CACHE}" DIRECTORY)
-    if(NOT cache_dir STREQUAL "")
-        file(MAKE_DIRECTORY "${cache_dir}")
-    endif()
-    file(WRITE "${CACHE}"
-        "# Generated from template.ioc + config/params.json. Do not edit.\n"
-        "set(HAS_AHRS ${HAS_AHRS})\n"
-        "set(HAS_REMOTER ${HAS_REMOTER})\n"
-        "set(HAS_VT03 ${HAS_VT03})\n"
-        "set(ENABLE_DR16 ${ENABLE_DR16})\n"
-        "set(ENABLE_VT03 ${ENABLE_VT03})\n"
-        "set(HAS_REFEREE ${HAS_REFEREE})\n"
-        "set(HAS_UI ${HAS_UI})\n"
-        "set(HAS_LED ${HAS_LED})\n"
-        "set(HAS_PWM_TIM3_CH4 ${HAS_PWM_TIM3_CH4})\n"
-        "set(HAS_PWM_TIM12_CH2 ${HAS_PWM_TIM12_CH2})\n"
-        "set(HAS_MOTORS ${HAS_MOTORS})\n"
-        "set(HW_HAS_USB ${HW_HAS_USB})\n"
-        "set(ENABLE_USBX ${ENABLE_USBX})\n"
-        "set(MOTOR_DJI ${MOTOR_DJI})\n"
-        "set(MOTOR_DM ${MOTOR_DM})\n"
-        "set(MOTOR_LK ${MOTOR_LK})\n"
-    )
-endif()
-
 message(STATUS "Generated ${CONFIG_HPP}")
-message(STATUS "Generated ${CONFIG_CAN_TABLES_CPP}")
-message(STATUS "Generated ${CONFIG_USART_TABLES_CPP}")
-message(STATUS "Generated ${MODULES_HPP}")
-message(STATUS "Generated ${APP_GATE_HPP}")
-if(CACHE)
-    message(STATUS "Generated ${CACHE}")
-endif()

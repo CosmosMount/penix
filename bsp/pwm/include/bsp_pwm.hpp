@@ -1,5 +1,7 @@
 #pragma once
 
+#include "config.hpp"
+#include "tim.h"
 #include "usertypes.hpp"
 
 namespace bsp::pwm
@@ -13,20 +15,12 @@ enum class channel : uint8_t
 
 constexpr bool is_enabled(channel ch)
 {
-    switch (ch)
-    {
-#if HAS_PWM_TIM3_CH4
-    case channel::tim3_ch4:
-        return true;
-#endif
-#if HAS_PWM_TIM12_CH2
-    case channel::tim12_ch2:
-        return true;
-#endif
-    default:
-        return false;
-    }
+    const auto index = static_cast<std::size_t>(ch);
+    return index < channel_count && configs[index].enabled;
 }
+
+TIM_HandleTypeDef* timer_of(channel ch) noexcept;
+std::uint32_t hal_channel_of(channel ch) noexcept;
 
 types::status init(channel ch);
 types::status start(channel ch);

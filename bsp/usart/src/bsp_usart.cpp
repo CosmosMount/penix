@@ -5,9 +5,16 @@
 #include <cstdint>
 #include <cstring>
 
+extern "C" {
+extern DMA_HandleTypeDef hdma_uart5_rx;
+extern DMA_HandleTypeDef hdma_uart7_rx;
+extern DMA_HandleTypeDef hdma_uart7_tx;
+extern DMA_HandleTypeDef hdma_usart1_rx;
+extern DMA_HandleTypeDef hdma_usart1_tx;
+}
+
 namespace
 {
-
 
 constexpr uint16_t dma_tx_stage_size = 256;
 constexpr std::uintptr_t ram_d1_start = 0x24000000UL;
@@ -141,6 +148,20 @@ void notify_rx(bsp::usart::port port, size_t len)
     }
 }
 
+bool rx_dma_is_circular(UART_HandleTypeDef* handle)
+{
+    return handle != nullptr && handle->hdmarx != nullptr &&
+           handle->hdmarx->Init.Mode == DMA_CIRCULAR;
+}
+
+void disable_rx_half_transfer_irq(UART_HandleTypeDef* handle)
+{
+    if (handle != nullptr && handle->hdmarx != nullptr)
+    {
+        __HAL_DMA_DISABLE_IT(handle->hdmarx, DMA_IT_HT);
+    }
+}
+
 bool same_rx_owner(const port_state& ctx, uint8_t* buffer, size_t len, bsp::usart::rx_handler handler,
                    void* user_data, TX_SEMAPHORE* notify_sem)
 {
@@ -152,6 +173,113 @@ bool same_rx_owner(const port_state& ctx, uint8_t* buffer, size_t len, bsp::usar
 
 namespace bsp::usart
 {
+
+namespace
+{
+
+const port_config* config_of(std::size_t index) noexcept
+{
+    return index < port_count ? &configs[index] : nullptr;
+}
+
+UART_HandleTypeDef* handle_from_id(handle_id id) noexcept
+{
+    switch (id)
+    {
+    case handle_id::uart5:
+        return &huart5;
+    case handle_id::uart7:
+        return &huart7;
+    case handle_id::usart1:
+        return &huart1;
+    default:
+        return nullptr;
+    }
+}
+
+DMA_HandleTypeDef* rx_dma_from_id(handle_id id) noexcept
+{
+    switch (id)
+    {
+    case handle_id::uart5:
+        return &hdma_uart5_rx;
+    case handle_id::uart7:
+        return &hdma_uart7_rx;
+    case handle_id::usart1:
+        return &hdma_usart1_rx;
+    default:
+        return nullptr;
+    }
+}
+
+DMA_HandleTypeDef* tx_dma_from_id(handle_id id) noexcept
+{
+    switch (id)
+    {
+    case handle_id::uart7:
+        return &hdma_uart7_tx;
+    case handle_id::usart1:
+        return &hdma_usart1_tx;
+    default:
+        return nullptr;
+    }
+}
+
+void enable_dma_irq(DMA_HandleTypeDef* dma) noexcept
+{
+    if (dma == nullptr)
+    {
+        return;
+    }
+
+    __HAL_DMA_DISABLE_IT(dma, DMA_IT_HT);
+    __HAL_DMA_ENABLE_IT(dma, DMA_IT_TC);
+}
+
+} // namespace
+
+UART_HandleTypeDef* handle_of(std::size_t index) noexcept
+{
+    const port_config* cfg = config_of(index);
+    return cfg != nullptr && cfg->enabled ? handle_from_id(cfg->handle) : nullptr;
+}
+
+std::size_t index_of(UART_HandleTypeDef* handle) noexcept
+{
+    for (std::size_t i = 0; i < port_count; ++i)
+    {
+        if (handle_of(i) == handle)
+        {
+            return i;
+        }
+    }
+    return port_count;
+}
+
+bool port_enabled(port port) noexcept
+{
+    const port_config* cfg = config_of(port);
+    return cfg != nullptr && cfg->enabled;
+}
+
+void setup_dma(UART_HandleTypeDef* handle) noexcept
+{
+    const std::size_t index = index_of(handle);
+    const port_config* cfg = config_of(index);
+    if (cfg == nullptr || !cfg->enabled)
+    {
+        return;
+    }
+
+    if (cfg->has_rx_dma)
+    {
+        enable_dma_irq(rx_dma_from_id(cfg->handle));
+    }
+    if (cfg->has_tx_dma)
+    {
+        enable_dma_irq(tx_dma_from_id(cfg->handle));
+    }
+}
 
 types::status restart_rx(port port)
 {
@@ -168,6 +296,7 @@ types::status restart_rx(port port)
         return types::status::error;
     }
 
+    disable_rx_half_transfer_irq(handle);
     invalidate_dcache_region(ctx->rx_buffer, ctx->rx_buffer_len);
 
     return types::status::ok;
@@ -175,6 +304,12 @@ types::status restart_rx(port port)
 
 void receive(UART_HandleTypeDef* handle, uint16_t size)
 {
+    const HAL_UART_RxEventTypeTypeDef event = HAL_UARTEx_GetRxEventType(handle);
+    if (event == HAL_UART_RXEVENT_HT)
+    {
+        return;
+    }
+
     const port port = index_of(handle);
     port_state* ctx = state_of(port);
     if (ctx == nullptr || ctx->rx_buffer == nullptr)
@@ -182,9 +317,17 @@ void receive(UART_HandleTypeDef* handle, uint16_t size)
         return;
     }
 
+    if (rx_dma_is_circular(handle) && event == HAL_UART_RXEVENT_TC)
+    {
+        return;
+    }
+
     invalidate_dcache_region(ctx->rx_buffer, size);
     notify_rx(port, size);
-    restart_rx(port);
+    if (!rx_dma_is_circular(handle))
+    {
+        restart_rx(port);
+    }
 }
 
 void handle_error(UART_HandleTypeDef* handle)
@@ -351,6 +494,7 @@ types::status start_rx_to_idle(port port, uint8_t* buffer, size_t len, rx_handle
         return types::status::error;
     }
 
+    disable_rx_half_transfer_irq(handle);
     invalidate_dcache_region(buffer, len);
 
     return types::status::ok;
