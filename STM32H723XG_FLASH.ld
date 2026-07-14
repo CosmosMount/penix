@@ -60,7 +60,8 @@ RAM_D1 (xrw)      : ORIGIN = 0x24000000, LENGTH = 320K
 RAM_D2 (xrw)      : ORIGIN = 0x30000000, LENGTH = 32K
 RAM_D3 (xrw)      : ORIGIN = 0x38000000, LENGTH = 16K
 ITCMRAM (xrw)      : ORIGIN = 0x00000000, LENGTH = 64K
-FLASH (rx)      : ORIGIN = 0x8000000, LENGTH = 1024K
+FLASH (rx)      : ORIGIN = 0x8000000, LENGTH = 768K
+FLASH_LOG (r)   : ORIGIN = 0x080C0000, LENGTH = 256K
 }
 
 /* Highest address of the user mode stack */
@@ -228,6 +229,43 @@ SECTIONS
 
   PROVIDE( __bss_start = __tbss_start );
   PROVIDE( __bss_size = __bss_end - __bss_start );
+
+  .ram_d1_bss (NOLOAD) :
+  {
+    . = ALIGN(8);
+    _sram_d1_bss = .;
+    *(.ram_d1_bss)
+    *(.ram_d1_bss*)
+    . = ALIGN(8);
+    _eram_d1_bss = .;
+  } >RAM_D1
+
+  .ram_d2_bss (NOLOAD) :
+  {
+    . = ALIGN(8);
+    _sram_d2_bss = .;
+    *(.ram_d2_bss)
+    *(.ram_d2_bss*)
+    . = ALIGN(8);
+    _eram_d2_bss = .;
+  } >RAM_D2
+
+  .ram_d3_bss (NOLOAD) :
+  {
+    . = ALIGN(8);
+    _sram_d3_bss = .;
+    *(.ram_d3_bss)
+    *(.ram_d3_bss*)
+    . = ALIGN(8);
+    _eram_d3_bss = .;
+  } >RAM_D3
+
+  .flash_log (NOLOAD) :
+  {
+    . = ALIGN(4);
+    KEEP(*(.flash_log))
+    . = ALIGN(4);
+  } >FLASH_LOG
 
   /* User_heap_stack section, used to check that there is enough RAM left */
   ._user_heap_stack (NOLOAD) :
