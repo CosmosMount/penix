@@ -20,20 +20,24 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 set(EMBEDDED_FRAMEWORK_CONFIG_DIR "${CMAKE_CURRENT_SOURCE_DIR}/configs")
 set(EMBEDDED_FRAMEWORK_GENERATED_DIR "${EMBEDDED_FRAMEWORK_CONFIG_DIR}/generated")
+set(EMBEDDED_FRAMEWORK_ROBOT_CONFIG "${EMBEDDED_FRAMEWORK_CONFIG_DIR}/robot.json")
 
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/board/board.ioc"
     "${EMBEDDED_FRAMEWORK_CONFIG_DIR}/params.json"
+    "${EMBEDDED_FRAMEWORK_ROBOT_CONFIG}"
     "${EMBEDDED_FRAMEWORK_CONFIG_DIR}/cmake/generate_config.cmake"
     "${EMBEDDED_FRAMEWORK_CONFIG_DIR}/cmake/import_ioc.cmake"
 )
 
 set(IOC "${CMAKE_CURRENT_SOURCE_DIR}/board/board.ioc")
 set(PARAMS "${EMBEDDED_FRAMEWORK_CONFIG_DIR}/params.json")
+set(ROBOT_CONFIG "${EMBEDDED_FRAMEWORK_ROBOT_CONFIG}")
 set(OUT_DIR "${EMBEDDED_FRAMEWORK_GENERATED_DIR}")
 include("${EMBEDDED_FRAMEWORK_CONFIG_DIR}/cmake/generate_config.cmake")
 unset(IOC)
 unset(PARAMS)
+unset(ROBOT_CONFIG)
 unset(OUT_DIR)
 
 file(GLOB_RECURSE EMBEDDED_FRAMEWORK_SOURCES CONFIGURE_DEPENDS
@@ -68,16 +72,28 @@ foreach(header IN LISTS EMBEDDED_FRAMEWORK_HEADERS)
 endforeach()
 list(REMOVE_DUPLICATES EMBEDDED_FRAMEWORK_INCLUDE_DIRS)
 
+set(CMSIS_DSP_SOURCES
+    "${CMAKE_CURRENT_SOURCE_DIR}/cmsis-dsp/Source/BasicMathFunctions/arm_dot_prod_f32.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/cmsis-dsp/Source/MatrixFunctions/arm_mat_add_f32.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/cmsis-dsp/Source/MatrixFunctions/arm_mat_init_f32.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/cmsis-dsp/Source/MatrixFunctions/arm_mat_inverse_f32.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/cmsis-dsp/Source/MatrixFunctions/arm_mat_mult_f32.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/cmsis-dsp/Source/MatrixFunctions/arm_mat_sub_f32.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/cmsis-dsp/Source/MatrixFunctions/arm_mat_trans_f32.c"
+)
+
 add_executable(${PROJECT_NAME})
 
 add_subdirectory(board/cmake/stm32cubemx)
 
 target_sources(${PROJECT_NAME} PRIVATE
     ${EMBEDDED_FRAMEWORK_SOURCES}
+    ${CMSIS_DSP_SOURCES}
 )
 
 target_include_directories(${PROJECT_NAME} PRIVATE
     ${EMBEDDED_FRAMEWORK_INCLUDE_DIRS}
+    "${CMAKE_CURRENT_SOURCE_DIR}/cmsis-dsp/Include"
     "${EMBEDDED_FRAMEWORK_GENERATED_DIR}"
 )
 
