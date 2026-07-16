@@ -127,7 +127,7 @@ void HAL_TIM_PWM_MspInit(TIM_HandleTypeDef* tim_pwmHandle)
     /* TIM3 clock enable */
     __HAL_RCC_TIM3_CLK_ENABLE();
   /* USER CODE BEGIN TIM3_MspInit 1 */
-
+    __HAL_DBGMCU_FREEZE_TIM3();
   /* USER CODE END TIM3_MspInit 1 */
   }
   else if(tim_pwmHandle->Instance==TIM12)
