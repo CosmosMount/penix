@@ -58,9 +58,10 @@ void delay_cycles(std::uint64_t cycles)
 namespace bsp::dwt
 {
 
-types::status init(std::uint32_t cpu_freq_mhz)
+types::status init()
 {
-    if (cpu_freq_mhz == 0U)
+    SystemCoreClockUpdate();
+    if (SystemCoreClock == 0U)
     {
         return types::status::invalid_arg;
     }
@@ -70,9 +71,9 @@ types::status init(std::uint32_t cpu_freq_mhz)
     DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
 
     state.sys_time = {};
-    state.cpu_freq_hz = cpu_freq_mhz * 1'000'000U;
-    state.cycles_per_ms = cpu_freq_mhz * 1000U;
-    state.cycles_per_us = cpu_freq_mhz;
+    state.cpu_freq_hz = SystemCoreClock;
+    state.cycles_per_ms = SystemCoreClock / 1000U;
+    state.cycles_per_us = SystemCoreClock / 1'000'000U;
     state.overflow_count = 0U;
     state.last_cnt = 0U;
     state.cnt64 = 0U;

@@ -11,6 +11,8 @@ namespace imu
 class bmi088 : public imu
 {
 public:
+    using data_ready_callback = void (*)(void* user);
+
     struct temp_control_config
     {
         bool enabled = false;
@@ -39,6 +41,7 @@ public:
     void set_heater_duty(float ratio);
     bool start_temperature_control(const temp_control_config& cfg);
     bool temperature_ready() const { return temperature_ready_; }
+    void set_gyro_data_ready_callback(data_ready_callback callback, void* user);
 
 private:
     enum class temp_state : uint8_t
@@ -111,8 +114,10 @@ private:
     static constexpr float temp_boost_duty = 0.06f;
     static constexpr float temp_reboost_duty = 0.05f;
     static constexpr float temp_approach_max_duty = 0.05f;
+    static constexpr ULONG temp_control_period_ticks = 125;
 
     static void temp_thread_entry(ULONG arg);
+    static void gyro_data_ready_entry(void* user);
     float calculate_temperature_duty(float temperature);
     float calculate_approach_duty(float temperature);
     bool valid_temperature(float temperature) const;
@@ -128,6 +133,8 @@ private:
     volatile bool temperature_ready_ = false;
     temp_state temp_state_ = temp_state::boost;
     float heater_duty_ = 0.0f;
+    data_ready_callback gyro_data_ready_callback_ = nullptr;
+    void* gyro_data_ready_user_ = nullptr;
     filter::iir sensor_filter[6] = {
         filter::iir(333.0f, 0.707f, 0.001f), filter::iir(333.0f, 0.707f, 0.001f),
         filter::iir(333.0f, 0.707f, 0.001f), filter::iir(333.0f, 0.707f, 0.001f),

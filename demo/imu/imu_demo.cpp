@@ -3,6 +3,7 @@
 #include "ahrs.hpp"
 #include "config.hpp"
 #include "demo_debug.hpp"
+#include "runtime_monitor.hpp"
 
 #include "tx_api.h"
 
@@ -47,6 +48,7 @@ constexpr std::uint32_t warmup_ticks = 12000;
 TX_THREAD monitor_thread{};
 alignas(8) std::uint8_t monitor_stack[1024]{};
 bool monitor_started = false;
+runtime::monitor monitor_runtime{};
 
 bool finite(float value) noexcept
 {
@@ -106,6 +108,13 @@ void sync_debug(const ahrs::telemetry& diag, bool timed_out) noexcept
     state.value_b = diag.accel_norm;
     state.value_c = diag.gyro_norm;
     state.ahrs_solved = diag.solved;
+    state.ahrs_dt_s = diag.dt_s;
+    state.ahrs_dt_min_s = diag.dt_min_s;
+    state.ahrs_dt_max_s = diag.dt_max_s;
+    state.ahrs_loop_runtime_us = diag.loop_runtime_us;
+    state.ahrs_loop_runtime_max_us = diag.loop_runtime_max_us;
+    state.ahrs_loop_runtime_avg_us = diag.loop_runtime_avg_us;
+    state.ahrs_loop_runtime_overruns = diag.loop_runtime_overruns;
     std::memcpy(state.quaternion, diag.quaternion, sizeof(state.quaternion));
     state.yaw = diag.yaw;
     state.pitch = diag.pitch;
@@ -153,9 +162,16 @@ void monitor_entry(ULONG /*arg*/)
     const ULONG started_at = tx_time_get();
     for (;;)
     {
+        monitor_runtime.begin();
         const auto& diag = ahrs::service::instance().diagnostics();
         const bool timed_out = (tx_time_get() - started_at) > warmup_ticks;
         sync_debug(diag, timed_out);
+        monitor_runtime.end();
+        const auto& stats = monitor_runtime.stats();
+        auto& state = demo::debug::debug_instance.imu_unit;
+        state.monitor_runtime_us = stats.last_us;
+        state.monitor_runtime_max_us = stats.max_us;
+        state.monitor_runtime_avg_us = stats.average_us();
         tx_thread_sleep(monitor_period_ticks);
     }
 }

@@ -14,7 +14,7 @@ struct time
     std::uint32_t us = 0;
 };
 
-types::status init(std::uint32_t cpu_freq_mhz);
+types::status init();
 bool initialized();
 
 void update();
