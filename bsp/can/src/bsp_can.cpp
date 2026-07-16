@@ -198,11 +198,11 @@ types::status init_classic(bus bus)
     {
         return status;
     }
-    if (HAL_FDCAN_Start(handle) != HAL_OK)
+    if (HAL_FDCAN_ActivateNotification(handle, notification, 0U) != HAL_OK)
     {
         return types::status::error;
     }
-    if (HAL_FDCAN_ActivateNotification(handle, notification, 0U) != HAL_OK)
+    if (HAL_FDCAN_Start(handle) != HAL_OK)
     {
         return types::status::error;
     }
@@ -228,10 +228,6 @@ types::status init_fd(bus bus)
     {
         return status;
     }
-    if (HAL_FDCAN_Start(handle) != HAL_OK)
-    {
-        return types::status::error;
-    }
     if (HAL_FDCAN_ActivateNotification(handle, notification, 0U) != HAL_OK)
     {
         return types::status::error;
@@ -241,6 +237,10 @@ types::status init_fd(bus bus)
         return types::status::error;
     }
     if (HAL_FDCAN_ConfigTxDelayCompensation(&hfdcan1,13,13) != HAL_OK)
+    {
+        return types::status::error;
+    }
+    if (HAL_FDCAN_Start(handle) != HAL_OK)
     {
         return types::status::error;
     }
@@ -263,18 +263,14 @@ types::status transmit_frame(bus bus,
     tx_header.Identifier = id;
     tx_header.IdType = (id > 0x7FFU) ? FDCAN_EXTENDED_ID : FDCAN_STANDARD_ID;
     tx_header.TxFrameType = FDCAN_DATA_FRAME;
-    tx_header.DataLength = len_to_dlc(len);
+    tx_header.DataLength = len;
     tx_header.ErrorStateIndicator = FDCAN_ESI_ACTIVE;
     tx_header.BitRateSwitch = (fd_format == FDCAN_FD_CAN) ? FDCAN_BRS_ON : FDCAN_BRS_OFF;
     tx_header.FDFormat = fd_format;
     tx_header.TxEventFifoControl = FDCAN_NO_TX_EVENTS;
     tx_header.MessageMarker = 0U;
 
-    uint8_t payload[64]{};
-    const auto copy_len = std::min<std::size_t>(len, sizeof(payload));
-    std::memcpy(payload, data, copy_len);
-
-    if (HAL_FDCAN_AddMessageToTxFifoQ(handle, &tx_header, payload) != HAL_OK)
+    if (HAL_FDCAN_AddMessageToTxFifoQ(handle, &tx_header, data) != HAL_OK)
     {
         return types::status::error;
     }
