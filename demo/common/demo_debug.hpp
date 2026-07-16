@@ -77,12 +77,44 @@ struct imu_unit_state : unit_test_state
     float total_yaw = 0.0f;
 };
 
+struct remoter_unit_state : unit_test_state
+{
+    bool offline = true;
+    std::uint32_t source = 0;
+    std::uint32_t left_sw = 0;
+    std::uint32_t right_sw = 0;
+    std::uint32_t last_left_sw = 0;
+    std::uint32_t last_right_sw = 0;
+    std::uint16_t key_bits = 0;
+    std::uint16_t last_key_bits = 0;
+    std::uint32_t update_count = 0;
+    float right_x = 0.0f;
+    float right_y = 0.0f;
+    float left_x = 0.0f;
+    float left_y = 0.0f;
+    float mouse_x = 0.0f;
+    float mouse_y = 0.0f;
+};
+
+struct referee_ui_state : unit_test_state
+{
+    bool referee_online = false;
+    bool ui_initialized = false;
+    std::uint32_t referee_update_count = 0;
+    std::uint16_t current_hp = 0;
+    std::uint16_t max_hp = 0;
+    std::uint16_t heat_now = 0;
+    std::uint16_t power_buffer = 0;
+};
+
 struct debug_instance_type
 {
     link_state usart{};
     link_state usb{};
     imu_unit_state imu_unit{};
     unit_test_state motor_unit{};
+    remoter_unit_state remoter_unit{};
+    referee_ui_state referee_ui{};
 };
 
 extern debug_instance_type& debug_instance;
