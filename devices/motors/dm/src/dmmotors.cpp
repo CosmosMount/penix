@@ -3,8 +3,6 @@
 namespace motors
 {
 
-dmmotor::dmmotor(config cfg, float kt) : motor(cfg, kt) {}
-
 void dmmotor::parse_feedback(const uint8_t* data, uint8_t len)
 {
     if (data == nullptr || len < 8)

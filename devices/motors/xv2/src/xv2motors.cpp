@@ -11,8 +11,6 @@ constexpr float rad_s_to_rpm_scale = 9.54929658551372f;
 
 } // namespace
 
-xv2motor::xv2motor(config cfg) : xv2motor(cfg, options{}) {}
-
 xv2motor::xv2motor(config cfg, options opts) : motor(cfg, 1.0f), options_(opts)
 {
     if (options_.tx_id == xv2::default_can_id && cfg.can_id != 0)
@@ -104,13 +102,5 @@ float xv2motor::rad_s_to_rpm(float rad_s)
 {
     return rad_s * rad_s_to_rpm_scale;
 }
-
-x42::x42(config cfg) : xv2motor(cfg) {}
-
-x42::x42(config cfg, options opts) : xv2motor(cfg, opts) {}
-
-y42::y42(config cfg) : xv2motor(cfg) {}
-
-y42::y42(config cfg, options opts) : xv2motor(cfg, opts) {}
 
 } // namespace motors

@@ -98,9 +98,4 @@ types::status write_flash_word(uint32_t addr, const void* data)
     return from_hal(status);
 }
 
-uint32_t tick_ms()
-{
-    return HAL_GetTick();
-}
-
 } // namespace bsp::flash

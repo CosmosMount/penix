@@ -84,28 +84,6 @@ std::uint32_t hal_channel_of(channel ch) noexcept
     return cfg != nullptr && cfg->enabled ? hal_channel_from_id(cfg->channel) : 0;
 }
 
-types::status init(channel ch)
-{
-    if (!is_enabled(ch))
-    {
-        return types::status::not_configured;
-    }
-
-    pwm_binding binding{};
-    if (!binding_for(ch, &binding))
-    {
-        return is_enabled(ch) ? types::status::invalid_arg : types::status::not_configured;
-    }
-
-    __HAL_TIM_SET_COMPARE(binding.timer, binding.hal_channel, 0);
-    if (HAL_TIM_PWM_Start(binding.timer, binding.hal_channel) != HAL_OK)
-    {
-        return types::status::error;
-    }
-
-    return types::status::ok;
-}
-
 types::status start(channel ch)
 {
     pwm_binding binding{};

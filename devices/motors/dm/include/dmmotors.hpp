@@ -57,7 +57,7 @@ public:
     static inline const uint8_t save_zero_frame[8] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFE};
     static inline const uint8_t clear_error_frame[8] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFB};
 
-    explicit dmmotor(config cfg, float kt = 1.0f);
+    explicit dmmotor(config cfg, float kt = 1.0f) : motor(cfg, kt) {}
 
     void parse_feedback(const uint8_t* data, uint8_t len) override;
     capabilities get_capabilities() const override { return {false, false, true, true, true}; }

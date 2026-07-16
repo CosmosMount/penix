@@ -50,11 +50,6 @@ alignas(8) std::uint8_t monitor_stack[1024]{};
 bool monitor_started = false;
 runtime::monitor monitor_runtime{};
 
-bool finite(float value) noexcept
-{
-    return std::isfinite(value);
-}
-
 bool quaternion_valid(const ahrs::telemetry& diag) noexcept
 {
     const float norm =
@@ -62,7 +57,7 @@ bool quaternion_valid(const ahrs::telemetry& diag) noexcept
         diag.quaternion[1] * diag.quaternion[1] +
         diag.quaternion[2] * diag.quaternion[2] +
         diag.quaternion[3] * diag.quaternion[3];
-    return finite(norm) && norm > 0.8f && norm < 1.2f;
+    return std::isfinite(norm) && norm > 0.8f && norm < 1.2f;
 }
 
 void sync_debug(const ahrs::telemetry& diag, bool timed_out) noexcept
