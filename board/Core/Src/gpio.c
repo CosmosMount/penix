@@ -22,6 +22,7 @@
 #include "gpio.h"
 
 /* USER CODE BEGIN 0 */
+#include "bsp_exti.h"
 
 /* USER CODE END 0 */
 
@@ -79,8 +80,17 @@ void MX_GPIO_Init(void)
   /*AnalogSwitch Config */
   HAL_SYSCFG_AnalogSwitchConfig(SYSCFG_SWITCH_PC3, SYSCFG_SWITCH_PC3_CLOSE);
 
+  /* EXTI interrupt init*/
+  HAL_NVIC_SetPriority(EXTI15_10_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
+
 }
 
 /* USER CODE BEGIN 2 */
+
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
+{
+  bsp_exti_dispatch(GPIO_Pin);
+}
 
 /* USER CODE END 2 */
