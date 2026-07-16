@@ -1,8 +1,30 @@
-# 配置参数传入说明
+# configs
 
-`embedded_framework` 的配置入口位于本目录，CMake 配置阶段会读取 `params.json`、`robot.json` 和 `board/board.ioc`，生成 `generated/config.hpp` 与 `generated/robot_config.hpp`。修改 JSON 后重新运行 CMake configure 或 build，即可刷新生成头文件。
+`configs/` 是 `embedded_framework` 的配置入口。CMake 配置阶段会读取 `params.json`、`robot.json` 和 `board/board.ioc`，生成 `generated/config.hpp` 与 `generated/robot_config.hpp`。修改 JSON 或 IOC 后，需要重新运行 configure 或 build 刷新生成头文件。
 
-生成脚本由顶层 `CMakeLists.txt` 传入以下 CMake 变量：`IOC` 指向 `board/board.ioc`，`PARAMS` 指向 `configs/params.json`，`ROBOT_CONFIG` 指向 `configs/robot.json`，`OUT_DIR` 指向 `configs/generated`。通常不需要手动传这些变量。
+生成脚本由顶层 `CMakeLists.txt` 传入以下变量：
+
+| 变量 | 指向 |
+| --- | --- |
+| `IOC` | `board/board.ioc` |
+| `PARAMS` | `configs/params.json` |
+| `ROBOT_CONFIG` | `configs/robot.json` |
+| `OUT_DIR` | `configs/generated` |
+
+通常不需要手动传这些变量。
+
+## 文件职责
+
+| 文件 | 说明 |
+| --- | --- |
+| `params.json` | 构建开关、外设绑定、线程优先级、demo 参数和模块参数。 |
+| `robot.json` | 机器人设备树，目前主要描述电机实例和达妙电机全局参数。 |
+| `cmake/import_ioc.cmake` | 解析 CubeMX IOC，提取 FDCAN、UART、SPI、TIM、USB 和 DMA 信息。 |
+| `cmake/generate_config.cmake` | 校验 JSON/IOC 并生成 C++ 头文件。 |
+| `generated/config.hpp` | 生成的硬件特性、BSP 枚举、UART 绑定和模块参数。 |
+| `generated/robot_config.hpp` | 生成的机器人设备常量和电机配置。 |
+
+`generated/` 下的文件是构建产物，不应手工修改。
 
 ## params.json
 
@@ -14,14 +36,14 @@
 | `build.motors.dji` | bool | `true` | 是否启用 DJI 电机相关构建开关。 |
 | `build.motors.dm` | bool | `true` | 是否启用达妙电机相关构建开关。 |
 | `build.motors.lk` | bool | `false` | 是否启用 LK 电机相关构建开关。 |
-| `bindings.remoter_uart` | string | `uart5` | 遥控器串口，需要与 `board.ioc` 中存在且有 RX DMA 的 UART 名称一致。 |
-| `bindings.referee_uart` | string | `usart1` | 裁判系统串口，需要与 `board.ioc` 中存在的 UART 名称一致。 |
-| `can.<fdcan>.id_type` | string | IOC 推导 | 指定某路 CAN 接收过滤 ID 类型，可选 `standard` 或 `extended`。例如 `can.fdcan1.id_type`。手动配置优先于 IOC 推导。 |
+| `bindings.remoter_uart` | string | `uart5` | DR16 遥控器串口，需要在 `board.ioc` 中存在且有 RX DMA。 |
+| `bindings.referee_uart` | string | `usart1` | 裁判系统串口，需要在 `board.ioc` 中存在。 |
+| `can.<fdcan>.id_type` | string | IOC 推导 | CAN 接收过滤 ID 类型，可选 `standard` 或 `extended`。 |
 | `ahrs.imu_offset_x` | number | `0.0` | IMU X 轴安装偏置。 |
 | `ahrs.imu_thread_priority` | number | `3` | AHRS/IMU 线程优先级。 |
 | `ahrs.temp_thread_priority` | number | `4` | IMU 温控线程优先级。 |
 | `ahrs.target_temp` | number | `45.0` | IMU 目标温度。 |
-| `remoter.source` | string | 空 | 遥控器来源，例如 `dr16`。 |
+| `remoter.source` | string | 自动选择 | 遥控器来源，可选 `dr16` 或 `vt03`。 |
 | `remoter.thread_priority` | number | `2` | 遥控器线程优先级。 |
 | `remoter.rx_timeout_ticks` | number | `100` | 遥控器接收超时 tick 数。 |
 | `referee.thread_priority` | number | `8` | 裁判系统线程优先级。 |
@@ -32,13 +54,13 @@
 | `usb.write_thread_priority` | number | `5` | USB CDC 写线程优先级。 |
 | `usb.period_ticks` | number | `2` | USB CDC 周期 tick 数。 |
 
-注意：`ahrs`、`remoter`、`referee`、`test`、`usb` 这些分组在生成脚本中按“整组缺省”补默认值。如果某个分组里只填写一部分字段，未填写的字段不会生成，使用时应保持同组字段完整。
+注意：`ahrs`、`remoter`、`referee`、`test`、`usb` 这些分组在生成脚本中按“整组缺省”补默认值。如果某个分组里只填写一部分字段，未填写字段不会自动补齐，使用时应保持同组字段完整。
 
-CAN 的 `id_type` 只表示标准帧 ID 或扩展帧 ID，不表示 CAN Classic 或 CAN FD。CAN Classic/FD 仍由 `board.ioc` 的 `FDCANx.FrameFormat` 推导；`can.<fdcan>.id_type` 只控制生成到 `config::can::filter_id_types` 的标准/扩展过滤类型。
+CAN 的 `id_type` 只表示标准帧 ID 或扩展帧 ID，不表示 CAN Classic 或 CAN FD。CAN Classic/FD 由 `board.ioc` 的 `FDCANx.FrameFormat` 推导。
 
 ## robot.json
 
-`robot.json` 描述机器人设备树，目前主要包含电机配置。
+`robot.json` 描述机器人设备树。目前主要包含电机配置，并生成 `robot::motors` 命名空间下的常量。
 
 ### `devices.motors.dm`
 
@@ -50,16 +72,14 @@ CAN 的 `id_type` 只表示标准帧 ID 或扩展帧 ID，不表示 CAN Classic 
 
 ### `devices.motors.list[]`
 
-每个电机对象支持以下字段：
-
 | 字段 | 类型 | 必填 | 说明 |
 | --- | --- | --- | --- |
 | `name` | string | 是 | 生成到 `robot::motors` 命名空间中的 C++ 标识符。 |
-| `model` | string | 是 | 电机型号。当前 motor demo 支持 `dji_m2006`、`dji_m3508`、`dji_gm6020`、`dji_xroll`、`dm_dm4310`、`dm_dm8009p`。 |
+| `model` | string | 是 | 电机型号。当前支持 `dji_m2006`、`dji_m3508`、`dji_gm6020`、`dji_xroll`、`dm_dm4310`、`dm_dm8009p`。 |
 | `can_bus` | string | 是 | CAN 外设名称，例如 `fdcan1`、`fdcan2`，必须存在于 `board.ioc`。 |
 | `can_type` | string | 是 | CAN 帧类型：`classic` 或 `fd`。 |
 | `can_id` | string/number | 是 | 电机基础 CAN ID，建议十六进制字符串，如 `0x01`。 |
-| `control_mode` | string | 否 | 电机初始控制模式，默认 `relax`；可选 `relax`、`torque`、`mit`、`pos_speed`、`speed`、`multi`。`velocity` 可作为 `speed` 的别名，`position_speed` 可作为 `pos_speed` 的别名。 |
+| `control_mode` | string | 否 | 初始控制模式，默认 `relax`；可选 `relax`、`torque`、`mit`、`pos_speed`、`speed`、`multi`。 |
 
 示例：
 
@@ -74,6 +94,11 @@ CAN 的 `id_type` 只表示标准帧 ID 或扩展帧 ID，不表示 CAN Classic 
 }
 ```
 
-`control_mode` 会写入生成的 `motors::config`，电机对象构造时即设置到 `control_mode`。对于达妙电机，enable/disable/save-zero/clear-error 的控制帧 ID 会根据该模式选择基础 ID、`+0x100`、`+0x200` 或 `0x300`，因此需要在 enable 前通过配置确定。
+`control_mode` 会写入生成的 `motors::config`，电机对象构造时即设置到 `control_mode`。对于达妙电机，enable/disable/save-zero/clear-error 控制帧 ID 会根据该模式选择基础 ID、`+0x100`、`+0x200` 或 `0x300`，因此需要在 enable 前通过配置确定。
 
-`model` 会生成 `<name>_model` 常量。例如 `name` 为 `motor2` 时会生成 `robot::motors::motor2_model`。demo 可以用这个常量在编译期选择具体 C++ 电机类。
+## 常见错误
+
+- `params.test.report_uart` 与遥控器 UART 相同：生成阶段会报错，避免测试输出占用遥控器串口。
+- `remoter.source=dr16` 但 IOC 中对应 UART 没有 RX DMA：生成阶段会报错。
+- `robot.json` 中电机 `can_bus` 不存在于 IOC：生成阶段会报错。
+- 手改 generated 文件：下次 configure 会被覆盖，应改 JSON 或 IOC。

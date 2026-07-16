@@ -2,12 +2,18 @@
 
 ## 作用
 
-本 demo 用于验证 USBX CDC ACM 的 USB 虚拟串口收发链路。
+本 demo 用于验证 `bsp::usb` 基于 USBX CDC ACM 的 USB 虚拟串口收发链路。它通过 typed packet binding 验证板端读写线程、主机枚举和单槽响应状态。
 
 - 主机通过 USB CDC COM 口访问设备。
 - 主机发送固定 24 字节 `host_packet`。
 - 板端校验 magic 与 checksum，通过后返回 32 字节 `device_packet`。
 - 固件侧不使用 print，状态通过 `demo_debug_instance.usb` 展开观察。
+
+## 配置前提
+
+- `board/board.ioc` 中启用了 USB OTG HS。
+- `configs/params.json` 中 `build.usbx` 为 `true`。
+- `demo/app.cpp` 中启用 `demo::usb::start()`。
 
 ## 调试流程
 
