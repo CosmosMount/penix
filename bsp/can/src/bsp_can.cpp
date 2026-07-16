@@ -157,12 +157,46 @@ void notify_rx(bus bus, const rx_frame& frame)
     }
 }
 
-types::status init_common(bus bus, uint32_t notification)
+types::status configure_standard_filter(FDCAN_HandleTypeDef* handle, uint32_t fifo) noexcept
 {
+    FDCAN_FilterTypeDef filter{};
+    filter.IdType = FDCAN_STANDARD_ID;
+    filter.FilterIndex = 0U;
+    filter.FilterType = FDCAN_FILTER_MASK;
+    filter.FilterConfig = fifo == FDCAN_RX_FIFO1 ? FDCAN_FILTER_TO_RXFIFO1 : FDCAN_FILTER_TO_RXFIFO0;
+    filter.FilterID1 = 0x000U;
+    filter.FilterID2 = 0x000U;
+
+    if (HAL_FDCAN_ConfigFilter(handle, &filter) != HAL_OK)
+    {
+        return types::status::error;
+    }
+    if (HAL_FDCAN_ConfigGlobalFilter(handle, FDCAN_REJECT, FDCAN_REJECT,
+                                     FDCAN_REJECT_REMOTE, FDCAN_REJECT_REMOTE) != HAL_OK)
+    {
+        return types::status::error;
+    }
+    return types::status::ok;
+}
+
+types::status init_classic(bus bus)
+{
+    uint32_t notification = FDCAN_IT_RX_FIFO0_NEW_MESSAGE |
+                            FDCAN_IT_ERROR_WARNING |
+                            FDCAN_IT_ERROR_PASSIVE |
+                            FDCAN_IT_ARB_PROTOCOL_ERROR |
+                            FDCAN_IT_DATA_PROTOCOL_ERROR |
+                            FDCAN_IT_BUS_OFF;
+
     FDCAN_HandleTypeDef* handle = handle_of(bus);
     if (handle == nullptr)
     {
         return types::status::invalid_arg;
+    }
+    types::status status = configure_standard_filter(handle, FDCAN_RX_FIFO0);
+    if (status != types::status::ok)
+    {
+        return status;
     }
     if (HAL_FDCAN_Start(handle) != HAL_OK)
     {
@@ -175,24 +209,42 @@ types::status init_common(bus bus, uint32_t notification)
     return types::status::ok;
 }
 
-types::status init_classic(bus bus)
-{
-    return init_common(bus, FDCAN_IT_RX_FIFO0_NEW_MESSAGE |
-                            FDCAN_IT_ERROR_WARNING |
-                            FDCAN_IT_ERROR_PASSIVE |
-                            FDCAN_IT_ARB_PROTOCOL_ERROR |
-                            FDCAN_IT_DATA_PROTOCOL_ERROR |
-                            FDCAN_IT_BUS_OFF);
-}
-
 types::status init_fd(bus bus)
 {
-    return init_common(bus, FDCAN_IT_RX_FIFO1_NEW_MESSAGE |
+    uint32_t notification = FDCAN_IT_RX_FIFO1_NEW_MESSAGE |
                             FDCAN_IT_ERROR_WARNING |
                             FDCAN_IT_ERROR_PASSIVE |
                             FDCAN_IT_ARB_PROTOCOL_ERROR |
                             FDCAN_IT_DATA_PROTOCOL_ERROR |
-                            FDCAN_IT_BUS_OFF);
+                            FDCAN_IT_BUS_OFF;
+
+    FDCAN_HandleTypeDef* handle = handle_of(bus);
+    if (handle == nullptr)
+    {
+        return types::status::invalid_arg;
+    }
+    types::status status = configure_standard_filter(handle, FDCAN_RX_FIFO1);
+    if (status != types::status::ok)
+    {
+        return status;
+    }
+    if (HAL_FDCAN_Start(handle) != HAL_OK)
+    {
+        return types::status::error;
+    }
+    if (HAL_FDCAN_ActivateNotification(handle, notification, 0U) != HAL_OK)
+    {
+        return types::status::error;
+    }
+    if (HAL_FDCAN_EnableTxDelayCompensation(&hfdcan1) != HAL_OK)
+    {
+        return types::status::error;
+    }
+    if (HAL_FDCAN_ConfigTxDelayCompensation(&hfdcan1,13,13) != HAL_OK)
+    {
+        return types::status::error;
+    }
+    return types::status::ok;
 }
 
 types::status transmit_frame(bus bus,
