@@ -1,0 +1,182 @@
+#include "ahrs.hpp"
+
+#include "constants.hpp"
+
+#include <cmath>
+#include <cstring>
+
+namespace ahrs
+{
+
+namespace
+{
+
+uint32_t ins_count = 0;
+
+float delta_s(uint32_t* last)
+{
+    if (last == nullptr)
+    {
+        return 0.001f;
+    }
+    const uint32_t now = tx_time_get();
+    const uint32_t elapsed = now - *last;
+    *last = now;
+    return static_cast<float>(elapsed) * 0.001f;
+}
+
+float vector_norm(float x, float y, float z)
+{
+    return std::sqrt(x * x + y * y + z * z);
+}
+
+} // namespace
+
+service& service::instance()
+{
+    static service inst;
+    return inst;
+}
+
+bool service::create_resources()
+{
+    if (tx_semaphore_create(&heartbeat_sem_, const_cast<CHAR*>("ahrs_hb"), 0) != TX_SUCCESS)
+    {
+        return false;
+    }
+
+    ahrs_topic_ = msg::create<message>();
+    if (ahrs_topic_ == nullptr)
+    {
+        return false;
+    }
+
+    if (tx_thread_create(&imu_thread_, const_cast<CHAR*>("ahrs_imu"), imu_thread_entry,
+                         reinterpret_cast<ULONG>(this),
+                         imu_stack_, sizeof(imu_stack_), cfg_.imu_thread_priority,
+                         cfg_.imu_thread_priority, TX_NO_TIME_SLICE, TX_AUTO_START) != TX_SUCCESS)
+    {
+        return false;
+    }
+
+    imu::bmi088::temp_control_config temp_cfg{};
+    temp_cfg.enabled = cfg_.temperature_control_enabled;
+    temp_cfg.target_temp = cfg_.target_temp;
+    temp_cfg.thread_priority = cfg_.temp_thread_priority;
+    if (!imu_.start_temperature_control(temp_cfg))
+    {
+        return false;
+    }
+
+    return true;
+}
+
+bool service::init(const config& cfg)
+{
+    if (initialized_)
+    {
+        return true;
+    }
+    cfg_ = cfg;
+    if (msg::init() != types::status::ok)
+    {
+        return false;
+    }
+    if (!create_resources())
+    {
+        return false;
+    }
+    initialized_ = true;
+    telemetry_.initialized = true;
+    telemetry_.resources_created = true;
+    return true;
+}
+
+void service::fill_msg(message& msg, const quaternion_ekf& ekf, const imu::reading& reading)
+{
+    std::memcpy(msg.quaternion, ekf.q, sizeof(ekf.q));
+    msg.yaw = ekf.yaw;
+    msg.pitch = ekf.pitch;
+    msg.roll = ekf.roll;
+    msg.total_yaw = ekf.total_yaw;
+    msg.gyro_r = reading.gyro.x;
+    msg.gyro_p = reading.gyro.y;
+    msg.gyro_y = reading.gyro.z;
+    msg.accel[0] = reading.accel.x;
+    msg.accel[1] = reading.accel.y;
+    msg.accel[2] = reading.accel.z;
+}
+
+void service::imu_thread_entry(ULONG arg)
+{
+    auto* self = reinterpret_cast<service*>(arg);
+    if (self == nullptr)
+    {
+        self = &instance();
+    }
+
+    message msg{};
+    imu::reading reading{};
+    quaternion_ekf ekf;
+
+    self->imu_.test.acc_chip_id_err = true;
+    self->imu_.test.acc_data_err = true;
+    self->imu_.test.gyro_chip_id_err = true;
+    self->imu_.test.gyro_data_err = true;
+    self->imu_.test.init_err = true;
+    self->imu_.test.calibrate_err = false;
+    self->imu_.test.temp_ctrl_err = false;
+
+    self->imu_.configure();
+    self->telemetry_.imu_configured = true;
+    self->imu_.verify_acc_chip_id();
+    self->telemetry_.accel_chip_ok = !self->imu_.test.acc_chip_id_err;
+    self->imu_.verify_gyro_chip_id();
+    self->telemetry_.gyro_chip_ok = !self->imu_.test.gyro_chip_id_err;
+
+    while (!self->imu_.temperature_ready())
+    {
+        self->telemetry_.temperature = self->imu_.temperature();
+        self->telemetry_.temperature_ready = false;
+        tx_thread_sleep(100);
+    }
+    self->telemetry_.temperature_ready = true;
+    self->telemetry_.temperature = self->imu_.temperature();
+    self->imu_.test.init_err = false;
+    self->imu_.calibrate();
+    self->telemetry_.calibrated = !self->imu_.test.calibrate_err;
+
+    ins_count = tx_time_get();
+
+    for (;;)
+    {
+        if (!self->imu_.test.init_err)
+        {
+            self->telemetry_.read_ok = self->imu_.read(reading);
+            if (self->cfg_.imu_offset_x != 0.0f)
+            {
+                reading.accel.x += self->cfg_.imu_offset_x * reading.gyro.z * reading.gyro.z;
+            }
+            ekf.update_kalman(reading.gyro.x, reading.gyro.y, reading.gyro.z,
+                              reading.accel.x, reading.accel.y, reading.accel.z,
+                              delta_s(&ins_count));
+            self->telemetry_.solved = ekf.UpdateCount > 0U;
+            self->telemetry_.update_count = static_cast<uint32_t>(ekf.UpdateCount);
+            self->telemetry_.temperature = reading.temperature;
+            self->telemetry_.accel_norm = vector_norm(reading.accel.x, reading.accel.y, reading.accel.z);
+            self->telemetry_.gyro_norm = vector_norm(reading.gyro.x, reading.gyro.y, reading.gyro.z);
+            std::memcpy(self->telemetry_.quaternion, ekf.q, sizeof(ekf.q));
+            self->telemetry_.yaw = ekf.yaw;
+            self->telemetry_.pitch = ekf.pitch;
+            self->telemetry_.roll = ekf.roll;
+            self->telemetry_.total_yaw = ekf.total_yaw;
+        }
+
+        tx_semaphore_put(&self->heartbeat_sem_);
+        self->fill_msg(msg, ekf, reading);
+        msg::publish(self->ahrs_topic_, msg);
+        tx_thread_sleep(1);
+    }
+}
+
+} // namespace ahrs

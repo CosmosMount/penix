@@ -41,10 +41,38 @@ struct link_state
     protocol::device_packet last_tx{};
 };
 
+struct unit_test_state
+{
+    bool started = false;
+    bool passed = false;
+    std::uint32_t total_count = 0;
+    std::uint32_t passed_count = 0;
+    std::uint32_t failed_count = 0;
+    std::uint32_t failure_mask = 0;
+    std::uint32_t last_step = 0;
+    std::uint32_t stage_mask = 0;
+    std::uint32_t observed_count = 0;
+    float value_a = 0.0f;
+    float value_b = 0.0f;
+    float value_c = 0.0f;
+};
+
+struct imu_unit_state : unit_test_state
+{
+    bool ahrs_solved = false;
+    float quaternion[4] = {1.0f, 0.0f, 0.0f, 0.0f};
+    float yaw = 0.0f;
+    float pitch = 0.0f;
+    float roll = 0.0f;
+    float total_yaw = 0.0f;
+};
+
 struct debug_instance_type
 {
     link_state usart{};
     link_state usb{};
+    imu_unit_state imu_unit{};
+    unit_test_state motor_unit{};
 };
 
 extern debug_instance_type& debug_instance;

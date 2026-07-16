@@ -5,8 +5,8 @@
 
 extern "C" void app_start()
 {
-    // demo::imu::run();
-    demo::motor::run();
+    demo::imu::run();
+    // demo::motor::run();
     // demo::usart::start();
     // demo::usb::start();
 }

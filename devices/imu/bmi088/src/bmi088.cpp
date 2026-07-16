@@ -119,6 +119,7 @@ bool bmi088::start_temperature_control(const temp_control_config& cfg)
     target_temp = temp_cfg_.target_temp;
     temperature_ready_ = false;
     temp_state_ = temp_state::boost;
+    heater_duty_ = 0.0f;
 
     if (tx_thread_create(&temp_thread_, const_cast<CHAR*>("bmi088_temp"), temp_thread_entry,
                          reinterpret_cast<ULONG>(this),
@@ -139,39 +140,35 @@ void bmi088::temp_thread_entry(ULONG arg)
     {
         return;
     }
-    self->temp_thread_loop();
-}
 
-void bmi088::temp_thread_loop()
-{
-    if (!temp_cfg_.enabled)
+    if (!self->temp_cfg_.enabled)
     {
-        test.temp_ctrl_err = false;
-        update_status_from_selftest();
+        self->test.temp_ctrl_err = false;
+        self->update_status_from_selftest();
 #if HAS_PWM_TIM3_CH4 || HAS_PWM_TIM12_CH2
         bsp::pwm::set_duty(imu_heater_pwm, 0.0f);
         bsp::pwm::stop(imu_heater_pwm);
 #endif
         for (;;)
         {
-            read_temperature(&acc.temperature);
-            if (!valid_temperature(acc.temperature))
+            self->read_temperature(&self->acc.temperature);
+            if (!self->valid_temperature(self->acc.temperature))
             {
-                temperature_ready_ = false;
-                test.temp_ctrl_err = true;
-                update_status_from_selftest();
+                self->temperature_ready_ = false;
+                self->test.temp_ctrl_err = true;
+                self->update_status_from_selftest();
             }
             else
             {
-                temperature_ready_ = acc.temperature >= 20.0f;
+                self->temperature_ready_ = self->acc.temperature >= 20.0f;
             }
             tx_thread_sleep(500);
         }
     }
 
-    auto& pid = temp_pid;
-    test.temp_ctrl_err = false;
-    update_status_from_selftest();
+    auto& pid = self->temp_pid;
+    self->test.temp_ctrl_err = false;
+    self->update_status_from_selftest();
     pid.mode = static_cast<control::pid_mode>(
         static_cast<uint8_t>(control::pid_mode::position) |
         static_cast<uint8_t>(control::pid_mode::integral_limit) |
@@ -189,19 +186,21 @@ void bmi088::temp_thread_loop()
 
     for (;;)
     {
-        read_temperature(&acc.temperature);
-        temperature_ready_ = valid_temperature(acc.temperature) && acc.temperature >= temp_ready_threshold;
-        if (!valid_temperature(acc.temperature))
+        self->read_temperature(&self->acc.temperature);
+        self->temperature_ready_ = self->valid_temperature(self->acc.temperature) &&
+                                   self->acc.temperature >= temp_ready_threshold;
+        if (!self->valid_temperature(self->acc.temperature))
         {
-            test.temp_ctrl_err = true;
-            update_status_from_selftest();
-            set_heater_duty(0.0f);
+            self->test.temp_ctrl_err = true;
+            self->update_status_from_selftest();
+            self->heater_duty_ = 0.0f;
+            self->set_heater_duty(0.0f);
         }
         else
         {
-            test.temp_ctrl_err = false;
-            update_status_from_selftest();
-            temperature_control(target_temp);
+            self->test.temp_ctrl_err = false;
+            self->update_status_from_selftest();
+            self->temperature_control(self->target_temp);
         }
         tx_thread_sleep(125);
     }
@@ -217,7 +216,8 @@ float bmi088::calculate_temperature_duty(float temperature)
     if (!valid_temperature(temperature))
     {
         temp_state_ = temp_state::overtemperature;
-        return 0.0f;
+        heater_duty_ = 0.0f;
+        return heater_duty_;
     }
 
     switch (temp_state_)
@@ -225,26 +225,33 @@ float bmi088::calculate_temperature_duty(float temperature)
     case temp_state::boost:
         if (temperature < temp_boost_enter)
         {
-            return temp_boost_duty;
+            heater_duty_ = temp_boost_duty;
         }
-        temp_state_ = temp_state::approach;
+        else
+        {
+            temp_state_ = temp_state::approach;
+            heater_duty_ = calculate_approach_duty(temperature);
+        }
         break;
 
     case temp_state::approach:
         if (temperature >= temp_over_enter)
         {
             temp_state_ = temp_state::overtemperature;
-            return 0.0f;
+            heater_duty_ = 0.0f;
         }
-        if (temperature >= temp_hold_enter)
+        else if (temperature >= temp_hold_enter)
         {
             temp_state_ = temp_state::hold;
-            return 0.0f;
         }
-        if (temperature < temp_boost_enter)
+        else if (temperature < temp_boost_enter)
         {
             temp_state_ = temp_state::boost;
-            return temp_boost_duty;
+            heater_duty_ = temp_reboost_duty;
+        }
+        else
+        {
+            heater_duty_ = calculate_approach_duty(temperature);
         }
         break;
 
@@ -252,34 +259,34 @@ float bmi088::calculate_temperature_duty(float temperature)
         if (temperature >= temp_over_enter)
         {
             temp_state_ = temp_state::overtemperature;
-            return 0.0f;
+            heater_duty_ = 0.0f;
         }
-        if (temperature < temp_boost_enter)
+        else if (temperature < temp_boost_enter)
         {
             temp_state_ = temp_state::boost;
-            return temp_boost_duty;
+            heater_duty_ = temp_reboost_duty;
         }
         break;
 
     case temp_state::overtemperature:
+        heater_duty_ = 0.0f;
         if (temperature <= temp_over_exit)
         {
             temp_state_ = temp_state::approach;
         }
-        else
-        {
-            return 0.0f;
-        }
         break;
     }
 
+    return heater_duty_;
+}
+
+float bmi088::calculate_approach_duty(float temperature)
+{
     temp_pid.ref = target_temp;
     temp_pid.fdb = temperature;
     temp_pid.update();
 
-    float duty = temp_pid.result / 999.0f;
-    const float limit = temp_state_ == temp_state::hold ? temp_hold_max_duty : temp_approach_max_duty;
-    return math::clamp(duty, 0.0f, limit);
+    return math::clamp(temp_pid.result / 999.0f, 0.0f, temp_approach_max_duty);
 }
 
 void bmi088::verify_acc_chip_id()

@@ -109,12 +109,12 @@ private:
     static constexpr float temp_fault_low = -20.0f;
     static constexpr float temp_fault_high = 85.0f;
     static constexpr float temp_boost_duty = 0.06f;
+    static constexpr float temp_reboost_duty = 0.05f;
     static constexpr float temp_approach_max_duty = 0.05f;
-    static constexpr float temp_hold_max_duty = 0.02f;
 
     static void temp_thread_entry(ULONG arg);
-    void temp_thread_loop();
     float calculate_temperature_duty(float temperature);
+    float calculate_approach_duty(float temperature);
     bool valid_temperature(float temperature) const;
     void read_reg(cs target, uint8_t addr, uint8_t* data, uint8_t len);
     void write_reg(cs target, uint8_t addr, const uint8_t* data, uint8_t len);
@@ -127,6 +127,7 @@ private:
     bool temp_thread_started_ = false;
     volatile bool temperature_ready_ = false;
     temp_state temp_state_ = temp_state::boost;
+    float heater_duty_ = 0.0f;
     filter::iir sensor_filter[6] = {
         filter::iir(333.0f, 0.707f, 0.001f), filter::iir(333.0f, 0.707f, 0.001f),
         filter::iir(333.0f, 0.707f, 0.001f), filter::iir(333.0f, 0.707f, 0.001f),
