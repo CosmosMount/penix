@@ -11,6 +11,17 @@
     "remoter_uart": "uart5",
     "referee_uart": "usart1"
   },
+  "can": {
+    "fdcan1": {
+      "id_type": "standard"
+    },
+    "fdcan2": {
+      "id_type": "standard"
+    },
+    "fdcan3": {
+      "id_type": "standard"
+    }
+  },
   "ahrs": {
     "imu_offset_x": 0.0,
     "imu_thread_priority": 3,

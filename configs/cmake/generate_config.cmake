@@ -43,6 +43,17 @@ function(_pnx_json_bool_to_cmake val out_var)
     endif()
 endfunction()
 
+function(_pnx_can_id_type_expr val out_var)
+    string(TOLOWER "${val}" val_lower)
+    if(val_lower STREQUAL "standard" OR val_lower STREQUAL "std")
+        set(${out_var} "id_type::standard" PARENT_SCOPE)
+    elseif(val_lower STREQUAL "extended" OR val_lower STREQUAL "ext")
+        set(${out_var} "id_type::extended" PARENT_SCOPE)
+    else()
+        message(FATAL_ERROR "can id_type must be standard or extended")
+    endif()
+endfunction()
+
 _pnx_json_bool_to_cmake("${motor_dji}" MOTOR_DJI)
 _pnx_json_bool_to_cmake("${motor_dm}" MOTOR_DM)
 _pnx_json_bool_to_cmake("${motor_lk}" MOTOR_LK)
@@ -195,11 +206,19 @@ foreach(hw ${PNX_IOC_FDCAN_HW})
     endif()
     list(APPEND can_type_list "${can_type_expr}")
 
-    pnx_ioc_fdcan_ext_filters("${PNX_IOC_LINES}" "${hw_lower}" ext_filters)
-    if(ext_filters GREATER 0)
-        set(can_id_type_expr "id_type::extended")
+    string(JSON manual_can_id_type ERROR_VARIABLE json_err GET "${params_json}" can ${hw_lower} id_type)
+    if(NOT json_err AND NOT manual_can_id_type STREQUAL "")
+        _pnx_can_id_type_expr("${manual_can_id_type}" can_id_type_expr)
     else()
-        set(can_id_type_expr "id_type::standard")
+        pnx_ioc_fdcan_std_filters("${PNX_IOC_LINES}" "${hw_lower}" std_filters)
+        pnx_ioc_fdcan_ext_filters("${PNX_IOC_LINES}" "${hw_lower}" ext_filters)
+        if(std_filters GREATER 0)
+            set(can_id_type_expr "id_type::standard")
+        elseif(ext_filters GREATER 0)
+            set(can_id_type_expr "id_type::extended")
+        else()
+            set(can_id_type_expr "id_type::standard")
+        endif()
     endif()
     list(APPEND can_id_type_list "${can_id_type_expr}")
     list(APPEND can_config_list "{ true, handle_id::${hw_lower}, ${can_type_expr}, ${can_id_type_expr} }")
@@ -439,6 +458,7 @@ endif()
 file(MAKE_DIRECTORY "${OUT_DIR}")
 
 set(CONFIG_HPP "${OUT_DIR}/config.hpp")
+set(ROBOT_CONFIG_HPP "${OUT_DIR}/robot_config.hpp")
 
 file(WRITE "${CONFIG_HPP}"
 "#pragma once\n"
@@ -570,3 +590,211 @@ string(REPLACE "${generated_semicolon_token}" ";" config_hpp_fixed "${config_hpp
 file(WRITE "${CONFIG_HPP}" "${config_hpp_fixed}")
 
 message(STATUS "Generated ${CONFIG_HPP}")
+
+function(_pnx_cpp_identifier input out_var)
+    string(REGEX REPLACE "[^A-Za-z0-9_]" "_" ident "${input}")
+    string(REGEX REPLACE "_+" "_" ident "${ident}")
+    string(REGEX REPLACE "^_+|_+$" "" ident "${ident}")
+    if(ident STREQUAL "")
+        set(ident "unnamed")
+    endif()
+    if(ident MATCHES "^[0-9]")
+        set(ident "_${ident}")
+    endif()
+    set(${out_var} "${ident}" PARENT_SCOPE)
+endfunction()
+
+function(_pnx_motor_type_flag model out_var)
+    string(TOLOWER "${model}" model_lower)
+    if(model_lower MATCHES "^dji_")
+        set(${out_var} "Dji" PARENT_SCOPE)
+    elseif(model_lower MATCHES "^dm_")
+        set(${out_var} "Dm" PARENT_SCOPE)
+    elseif(model_lower MATCHES "^lk_")
+        set(${out_var} "Lk" PARENT_SCOPE)
+    elseif(model_lower MATCHES "^xv2_")
+        set(${out_var} "Xv2" PARENT_SCOPE)
+    else()
+        set(${out_var} "Other" PARENT_SCOPE)
+    endif()
+endfunction()
+
+function(_pnx_motor_control_mode_expr mode out_var)
+    string(TOLOWER "${mode}" mode_lower)
+    if(mode_lower STREQUAL "" OR mode_lower STREQUAL "relax")
+        set(${out_var} "::motors::mode::relax" PARENT_SCOPE)
+    elseif(mode_lower STREQUAL "torque")
+        set(${out_var} "::motors::mode::torque" PARENT_SCOPE)
+    elseif(mode_lower STREQUAL "mit")
+        set(${out_var} "::motors::mode::mit" PARENT_SCOPE)
+    elseif(mode_lower STREQUAL "pos_speed" OR mode_lower STREQUAL "position_speed")
+        set(${out_var} "::motors::mode::pos_speed" PARENT_SCOPE)
+    elseif(mode_lower STREQUAL "speed" OR mode_lower STREQUAL "velocity")
+        set(${out_var} "::motors::mode::speed" PARENT_SCOPE)
+    elseif(mode_lower STREQUAL "multi")
+        set(${out_var} "::motors::mode::multi" PARENT_SCOPE)
+    else()
+        message(FATAL_ERROR "robot motor control_mode must be relax, torque, mit, pos_speed, speed, or multi")
+    endif()
+endfunction()
+
+function(_pnx_motor_model_expr model out_var)
+    string(TOLOWER "${model}" model_lower)
+    if(model_lower STREQUAL "dji_m2006")
+        set(${out_var} "model::dji_m2006" PARENT_SCOPE)
+    elseif(model_lower STREQUAL "dji_m3508")
+        set(${out_var} "model::dji_m3508" PARENT_SCOPE)
+    elseif(model_lower STREQUAL "dji_gm6020")
+        set(${out_var} "model::dji_gm6020" PARENT_SCOPE)
+    elseif(model_lower STREQUAL "dji_xroll")
+        set(${out_var} "model::dji_xroll" PARENT_SCOPE)
+    elseif(model_lower STREQUAL "dm_dm4310")
+        set(${out_var} "model::dm_dm4310" PARENT_SCOPE)
+    elseif(model_lower STREQUAL "dm_dm8009p")
+        set(${out_var} "model::dm_dm8009p" PARENT_SCOPE)
+    elseif(model_lower STREQUAL "unknown" OR model_lower STREQUAL "")
+        set(${out_var} "model::unknown" PARENT_SCOPE)
+    else()
+        message(FATAL_ERROR "robot motor model ${model} is not supported")
+    endif()
+endfunction()
+
+set(robot_motors_body "")
+set(robot_motor_count 0)
+set(robot_has_dji 0)
+set(robot_has_dm 0)
+set(robot_has_lk 0)
+set(robot_has_xv2 0)
+set(robot_has_other 0)
+set(robot_dm_id_base "0x01")
+set(robot_dm_master_id_base "0x05")
+set(robot_dm_max_motors "4")
+
+if(DEFINED ROBOT_CONFIG AND EXISTS "${ROBOT_CONFIG}")
+    file(READ "${ROBOT_CONFIG}" robot_json)
+    string(JSON robot_dm_id_base_json ERROR_VARIABLE json_err GET "${robot_json}" devices motors dm id_base)
+    if(NOT json_err AND NOT robot_dm_id_base_json STREQUAL "")
+        set(robot_dm_id_base "${robot_dm_id_base_json}")
+    endif()
+    string(JSON robot_dm_master_id_base_json ERROR_VARIABLE json_err GET "${robot_json}" devices motors dm master_id_base)
+    if(NOT json_err AND NOT robot_dm_master_id_base_json STREQUAL "")
+        set(robot_dm_master_id_base "${robot_dm_master_id_base_json}")
+    endif()
+    string(JSON robot_dm_max_motors_json ERROR_VARIABLE json_err GET "${robot_json}" devices motors dm max_motors)
+    if(NOT json_err AND NOT robot_dm_max_motors_json STREQUAL "")
+        set(robot_dm_max_motors "${robot_dm_max_motors_json}")
+    endif()
+
+    string(JSON motor_count ERROR_VARIABLE json_err LENGTH "${robot_json}" devices motors list)
+    if(json_err)
+        set(motor_count 0)
+    endif()
+
+    if(motor_count GREATER 0)
+        math(EXPR motor_last_index "${motor_count} - 1")
+        foreach(i RANGE 0 ${motor_last_index})
+            string(JSON motor_name ERROR_VARIABLE json_err GET "${robot_json}" devices motors list ${i} name)
+            if(json_err OR motor_name STREQUAL "")
+                message(FATAL_ERROR "robot motor at index ${i} requires a non-empty name")
+            endif()
+            string(JSON motor_model ERROR_VARIABLE json_err GET "${robot_json}" devices motors list ${i} model)
+            if(json_err OR motor_model STREQUAL "")
+                set(motor_model "unknown")
+            endif()
+            string(JSON motor_can_bus ERROR_VARIABLE json_err GET "${robot_json}" devices motors list ${i} can_bus)
+            if(json_err OR motor_can_bus STREQUAL "")
+                message(FATAL_ERROR "robot motor ${motor_name} requires can_bus")
+            endif()
+            string(JSON motor_can_type ERROR_VARIABLE json_err GET "${robot_json}" devices motors list ${i} can_type)
+            if(json_err OR motor_can_type STREQUAL "")
+                message(FATAL_ERROR "robot motor ${motor_name} requires can_type")
+            endif()
+            string(JSON motor_can_id ERROR_VARIABLE json_err GET "${robot_json}" devices motors list ${i} can_id)
+            if(json_err OR motor_can_id STREQUAL "")
+                message(FATAL_ERROR "robot motor ${motor_name} requires can_id")
+            endif()
+            string(JSON motor_control_mode ERROR_VARIABLE json_err GET "${robot_json}" devices motors list ${i} control_mode)
+            if(json_err)
+                set(motor_control_mode "relax")
+            endif()
+
+            string(TOLOWER "${motor_can_bus}" motor_can_bus_lower)
+            string(TOLOWER "${motor_can_type}" motor_can_type_lower)
+            pnx_ioc_hw_in_list("${PNX_IOC_FDCAN_HW}" "${motor_can_bus_lower}" motor_can_bus_present)
+            if(NOT motor_can_bus_present)
+                message(FATAL_ERROR "robot motor ${motor_name} uses ${motor_can_bus_lower}, but it is not present in ${IOC}")
+            endif()
+            if(NOT motor_can_type_lower STREQUAL "classic" AND NOT motor_can_type_lower STREQUAL "fd")
+                message(FATAL_ERROR "robot motor ${motor_name} can_type must be classic or fd")
+            endif()
+
+            _pnx_cpp_identifier("${motor_name}" motor_ident)
+            string(REGEX MATCH "^[A-Za-z_][A-Za-z0-9_]*$" valid_ident "${motor_ident}")
+            if(NOT valid_ident)
+                message(FATAL_ERROR "robot motor ${motor_name} cannot be converted to a valid C++ identifier")
+            endif()
+
+            _pnx_motor_type_flag("${motor_model}" motor_type_flag)
+            _pnx_motor_control_mode_expr("${motor_control_mode}" motor_control_mode_expr)
+            _pnx_motor_model_expr("${motor_model}" motor_model_expr)
+            if(motor_type_flag STREQUAL "Dji")
+                set(robot_has_dji 1)
+            elseif(motor_type_flag STREQUAL "Dm")
+                set(robot_has_dm 1)
+            elseif(motor_type_flag STREQUAL "Lk")
+                set(robot_has_lk 1)
+            elseif(motor_type_flag STREQUAL "Xv2")
+                set(robot_has_xv2 1)
+            else()
+                set(robot_has_other 1)
+            endif()
+
+            string(APPEND robot_motors_body
+                "// ${motor_model}\n"
+                "inline constexpr model ${motor_ident}_model = ${motor_model_expr};\n"
+                "inline constexpr ::motors::config ${motor_ident}{\n"
+                "    bsp::can::bus::${motor_can_bus_lower},\n"
+                "    bsp::can::bus_type::${motor_can_type_lower},\n"
+                "    ${motor_can_id}U,\n"
+                "    ${motor_control_mode_expr},\n"
+                "};\n\n")
+            math(EXPR robot_motor_count "${robot_motor_count} + 1")
+        endforeach()
+    endif()
+endif()
+
+if(robot_motors_body STREQUAL "")
+    set(robot_motors_body "// No motors are described in the robot device tree.\n")
+endif()
+
+file(WRITE "${ROBOT_CONFIG_HPP}"
+"#pragma once\n"
+"// Generated from robot device tree. Do not edit.\n\n"
+"#include \"motor.hpp\"\n\n"
+"#include <cstddef>\n"
+"#include <cstdint>\n\n"
+"namespace robot::motors {\n\n"
+"inline constexpr std::size_t motor_count = ${robot_motor_count};\n"
+"inline constexpr bool has_dji = ${robot_has_dji};\n"
+"inline constexpr bool has_dm = ${robot_has_dm};\n"
+"inline constexpr bool has_lk = ${robot_has_lk};\n"
+"inline constexpr bool has_xv2 = ${robot_has_xv2};\n"
+"inline constexpr bool has_other = ${robot_has_other};\n\n"
+"enum class model : std::uint8_t {\n"
+"    unknown = 0,\n"
+"    dji_m2006,\n"
+"    dji_m3508,\n"
+"    dji_gm6020,\n"
+"    dji_xroll,\n"
+"    dm_dm4310,\n"
+"    dm_dm8009p,\n"
+"};\n\n"
+"namespace dm {\n"
+"inline constexpr std::uint32_t id_base = ${robot_dm_id_base}U;\n"
+"inline constexpr std::uint32_t master_id_base = ${robot_dm_master_id_base}U;\n"
+"inline constexpr std::size_t max_motors = ${robot_dm_max_motors};\n"
+"} // namespace dm\n\n"
+"${robot_motors_body}"
+"} // namespace robot::motors\n")
+
+message(STATUS "Generated ${ROBOT_CONFIG_HPP}")
