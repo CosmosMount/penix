@@ -7,6 +7,7 @@ namespace
 {
 
 constexpr uint16_t CRC16Init = 0xFFFFU;
+constexpr uint16_t CRC16ModbusInit = 0xFFFFU;
 constexpr uint8_t CRC8Init = 0xFFU;
 
 constexpr uint16_t CRC16Table[256] = 
@@ -98,6 +99,64 @@ void append_crc16_checksum(uint8_t* _data, uint32_t length)
   const uint16_t crc = get_crc16_checksum(_data, length - 2U, CRC16Init);
   _data[length - 2U] = static_cast<uint8_t>(crc & 0x00FFU);
   _data[length - 1U] = static_cast<uint8_t>((crc >> 8) & 0x00FFU);
+}
+
+// Modbus CRC16
+// poly: 0x8005
+// reflected polynomial: 0xA001
+// init: 0xFFFF
+// CRC output bytes: low byte first
+uint16_t get_crc16_modbus_checksum(const uint8_t* _data, uint32_t length, uint16_t seed)
+{
+  if (_data == nullptr)
+  {
+    return 0xFFFFU;
+  }
+
+  uint16_t crc = seed;
+  while (length-- > 0U)
+  {
+    crc = static_cast<uint16_t>(crc ^ static_cast<uint16_t>(*_data++));
+    for (uint8_t bit = 0U; bit < 8U; ++bit)
+    {
+      if ((crc & 0x0001U) != 0U)
+      {
+        crc = static_cast<uint16_t>((crc >> 1U) ^ 0xA001U);
+      }
+      else
+      {
+        crc = static_cast<uint16_t>(crc >> 1U);
+      }
+    }
+  }
+  return crc;
+}
+
+uint32_t verify_crc16_modbus_checksum(const uint8_t* _data, uint32_t length)
+{
+  if (_data == nullptr || length <= 2U)
+  {
+    return 0U;
+  }
+
+  const uint16_t expected =
+      get_crc16_modbus_checksum(_data, length - 2U, CRC16ModbusInit);
+  return (static_cast<uint8_t>(expected & 0x00FFU) == _data[length - 2U] &&
+          static_cast<uint8_t>((expected >> 8U) & 0x00FFU) == _data[length - 1U])
+             ? 1U
+             : 0U;
+}
+
+void append_crc16_modbus_checksum(uint8_t* _data, uint32_t length)
+{
+  if (_data == nullptr || length <= 2U)
+  {
+    return;
+  }
+
+  const uint16_t crc = get_crc16_modbus_checksum(_data, length - 2U, CRC16ModbusInit);
+  _data[length - 2U] = static_cast<uint8_t>(crc & 0x00FFU);
+  _data[length - 1U] = static_cast<uint8_t>((crc >> 8U) & 0x00FFU);
 }
 
 uint8_t get_crc8_checksum(const uint8_t* _data, uint16_t length, uint8_t seed) 

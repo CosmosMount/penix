@@ -28,6 +28,7 @@ public:
     void tune(float kp, float ki, float kd);
     void update(float velocity = 0.0f);
     void clear();
+    void reset_state(float reference, float feedback);
 
     pid_mode mode = pid_mode::position;
 

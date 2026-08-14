@@ -96,11 +96,6 @@ void on(color c)
 #endif
 }
 
-void off(color)
-{
-    all_off();
-}
-
 void toggle(color c)
 {
     static bool enabled = false;
@@ -111,7 +106,7 @@ void toggle(color c)
     }
     else
     {
-        off(c);
+        all_off();
     }
 }
 

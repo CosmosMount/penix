@@ -1,14 +1,14 @@
 cmake_minimum_required(VERSION 3.22)
 
 if(NOT CMAKE_TOOLCHAIN_FILE)
-    set(EMBEDDED_FRAMEWORK_COMPILER_HINT "${CMAKE_C_COMPILER};${CMAKE_CXX_COMPILER}")
-    if(EMBEDDED_FRAMEWORK_COMPILER_HINT MATCHES "arm-none-eabi")
-        include("${CMAKE_CURRENT_SOURCE_DIR}/board/cmake/gcc-arm-none-eabi.cmake")
+    set(PNX_EMBEDDED_COMPILER_HINT "${CMAKE_C_COMPILER};${CMAKE_CXX_COMPILER}")
+    if(PNX_EMBEDDED_COMPILER_HINT MATCHES "arm-none-eabi")
+        include("${CMAKE_CURRENT_SOURCE_DIR}/boards/stm32h723/cmake/gcc-arm-none-eabi.cmake")
     endif()
-    unset(EMBEDDED_FRAMEWORK_COMPILER_HINT)
+    unset(PNX_EMBEDDED_COMPILER_HINT)
 endif()
 
-project(embedded_framework LANGUAGES C CXX ASM)
+project(pnx_embedded LANGUAGES C CXX ASM)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -18,44 +18,51 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-set(EMBEDDED_FRAMEWORK_CONFIG_DIR "${CMAKE_CURRENT_SOURCE_DIR}/configs")
-set(EMBEDDED_FRAMEWORK_GENERATED_DIR "${EMBEDDED_FRAMEWORK_CONFIG_DIR}/generated")
-set(EMBEDDED_FRAMEWORK_ROBOT_CONFIG "${EMBEDDED_FRAMEWORK_CONFIG_DIR}/robot.json")
+set(PNX_EMBEDDED_CONFIG_DIR "${CMAKE_CURRENT_SOURCE_DIR}/configs")
+set(PNX_EMBEDDED_GENERATED_DIR "${PNX_EMBEDDED_CONFIG_DIR}/generated")
+set(PNX_EMBEDDED_ROBOT_CONFIG "${PNX_EMBEDDED_CONFIG_DIR}/robot.json")
 
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
-    "${CMAKE_CURRENT_SOURCE_DIR}/board/board.ioc"
-    "${EMBEDDED_FRAMEWORK_CONFIG_DIR}/params.json"
-    "${EMBEDDED_FRAMEWORK_ROBOT_CONFIG}"
-    "${EMBEDDED_FRAMEWORK_CONFIG_DIR}/cmake/generate_config.cmake"
-    "${EMBEDDED_FRAMEWORK_CONFIG_DIR}/cmake/import_ioc.cmake"
+    "${CMAKE_CURRENT_SOURCE_DIR}/boards/stm32h723/board.ioc"
+    "${PNX_EMBEDDED_CONFIG_DIR}/params.json"
+    "${PNX_EMBEDDED_ROBOT_CONFIG}"
+    "${PNX_EMBEDDED_CONFIG_DIR}/cmake/generate_config.cmake"
+    "${PNX_EMBEDDED_CONFIG_DIR}/cmake/import_ioc.cmake"
 )
 
-set(IOC "${CMAKE_CURRENT_SOURCE_DIR}/board/board.ioc")
-set(PARAMS "${EMBEDDED_FRAMEWORK_CONFIG_DIR}/params.json")
-set(ROBOT_CONFIG "${EMBEDDED_FRAMEWORK_ROBOT_CONFIG}")
-set(OUT_DIR "${EMBEDDED_FRAMEWORK_GENERATED_DIR}")
-include("${EMBEDDED_FRAMEWORK_CONFIG_DIR}/cmake/generate_config.cmake")
+set(IOC "${CMAKE_CURRENT_SOURCE_DIR}/boards/stm32h723/board.ioc")
+set(PARAMS "${PNX_EMBEDDED_CONFIG_DIR}/params.json")
+set(ROBOT_CONFIG "${PNX_EMBEDDED_ROBOT_CONFIG}")
+set(OUT_DIR "${PNX_EMBEDDED_GENERATED_DIR}")
+include("${PNX_EMBEDDED_CONFIG_DIR}/cmake/generate_config.cmake")
 unset(IOC)
 unset(PARAMS)
 unset(ROBOT_CONFIG)
 unset(OUT_DIR)
 
-file(GLOB_RECURSE EMBEDDED_FRAMEWORK_SOURCES CONFIGURE_DEPENDS
-    "${CMAKE_CURRENT_SOURCE_DIR}/bsp/*.c"
-    "${CMAKE_CURRENT_SOURCE_DIR}/bsp/*.cpp"
+file(GLOB_RECURSE PNX_EMBEDDED_SOURCES CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/bsp/stm32h723/*.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/bsp/stm32h723/*.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/devices/*.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/modules/*.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/libs/*.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/demo/*.cpp"
 )
 
+list(FILTER PNX_EMBEDDED_SOURCES EXCLUDE REGEX "[/\\\\]demo[/\\\\]f4[/\\\\]")
+list(FILTER PNX_EMBEDDED_SOURCES EXCLUDE REGEX "[/\\\\]bsp[/\\\\]stm32f407[/\\\\]")
+
 if(NOT ENABLE_USBX)
-    list(FILTER EMBEDDED_FRAMEWORK_SOURCES EXCLUDE REGEX "[/\\\\]bsp[/\\\\]usb[/\\\\]")
+    list(FILTER PNX_EMBEDDED_SOURCES EXCLUDE REGEX "[/\\\\]bsp[/\\\\]usb[/\\\\]")
 endif()
 
-file(GLOB_RECURSE EMBEDDED_FRAMEWORK_HEADERS CONFIGURE_DEPENDS
-    "${CMAKE_CURRENT_SOURCE_DIR}/bsp/*.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/bsp/*.hpp"
+if(NOT HAS_DMIMU)
+    list(FILTER PNX_EMBEDDED_SOURCES EXCLUDE REGEX "[/\\\\]devices[/\\\\]imu[/\\\\]dmimu[/\\\\]")
+endif()
+
+file(GLOB_RECURSE PNX_EMBEDDED_HEADERS CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/bsp/stm32h723/*.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/bsp/stm32h723/*.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/devices/*.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/devices/*.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/modules/*.h"
@@ -65,12 +72,19 @@ file(GLOB_RECURSE EMBEDDED_FRAMEWORK_HEADERS CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/demo/*.hpp"
 )
 
-set(EMBEDDED_FRAMEWORK_INCLUDE_DIRS)
-foreach(header IN LISTS EMBEDDED_FRAMEWORK_HEADERS)
+list(FILTER PNX_EMBEDDED_HEADERS EXCLUDE REGEX "[/\\\\]demo[/\\\\]f4[/\\\\]")
+list(FILTER PNX_EMBEDDED_HEADERS EXCLUDE REGEX "[/\\\\]bsp[/\\\\]stm32f407[/\\\\]")
+
+if(NOT HAS_DMIMU)
+    list(FILTER PNX_EMBEDDED_HEADERS EXCLUDE REGEX "[/\\\\]devices[/\\\\]imu[/\\\\]dmimu[/\\\\]")
+endif()
+
+set(PNX_EMBEDDED_INCLUDE_DIRS)
+foreach(header IN LISTS PNX_EMBEDDED_HEADERS)
     get_filename_component(header_dir "${header}" DIRECTORY)
-    list(APPEND EMBEDDED_FRAMEWORK_INCLUDE_DIRS "${header_dir}")
+    list(APPEND PNX_EMBEDDED_INCLUDE_DIRS "${header_dir}")
 endforeach()
-list(REMOVE_DUPLICATES EMBEDDED_FRAMEWORK_INCLUDE_DIRS)
+list(REMOVE_DUPLICATES PNX_EMBEDDED_INCLUDE_DIRS)
 
 set(CMSIS_DSP_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/cmsis-dsp/Source/BasicMathFunctions/arm_dot_prod_f32.c"
@@ -84,17 +98,18 @@ set(CMSIS_DSP_SOURCES
 
 add_executable(${PROJECT_NAME})
 
-add_subdirectory(board/cmake/stm32cubemx)
+add_subdirectory(boards/stm32h723/cmake/stm32cubemx)
 
 target_sources(${PROJECT_NAME} PRIVATE
-    ${EMBEDDED_FRAMEWORK_SOURCES}
+    ${PNX_EMBEDDED_SOURCES}
     ${CMSIS_DSP_SOURCES}
+    "${PNX_EMBEDDED_GENERATED_DIR}/bsp_bindings.cpp"
 )
 
 target_include_directories(${PROJECT_NAME} PRIVATE
-    ${EMBEDDED_FRAMEWORK_INCLUDE_DIRS}
+    ${PNX_EMBEDDED_INCLUDE_DIRS}
     "${CMAKE_CURRENT_SOURCE_DIR}/cmsis-dsp/Include"
-    "${EMBEDDED_FRAMEWORK_GENERATED_DIR}"
+    "${PNX_EMBEDDED_GENERATED_DIR}"
 )
 
 target_link_libraries(${PROJECT_NAME}

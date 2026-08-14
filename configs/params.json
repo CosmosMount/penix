@@ -14,19 +14,25 @@
   "can": {
     "fdcan1": {
       "id_type": "standard"
-    },
-    "fdcan2": {
-      "id_type": "standard"
-    },
-    "fdcan3": {
-      "id_type": "standard"
     }
+  },
+  "can_diag": {
+    "enabled": true,
+    "sample_period_ms": 1000,
+    "window_size": 60
   },
   "ahrs": {
     "imu_offset_x": 0.0,
     "imu_thread_priority": 3,
     "temp_thread_priority": 4,
     "target_temp": 45.0
+  },
+  "dmimu": {
+    "communication_mode": "active",
+    "offline_timeout_ticks": 100,
+    "thread_priority": 3,
+    "receive_wait_ticks": 1,
+    "request_period_ticks": 1
   },
   "remoter": {
     "source": "dr16",
@@ -39,6 +45,6 @@
   "test": {
     "thread_priority": 10,
     "report_uart": "uart7",
-    "auto_run_on_boot": true
+    "auto_run_on_boot": false
   }
 }

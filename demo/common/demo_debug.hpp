@@ -1,5 +1,6 @@
 #pragma once
 
+#include "config.hpp"
 #include "demo_protocol.hpp"
 
 #include <cstdint>
@@ -60,27 +61,96 @@ struct unit_test_state
 struct imu_unit_state : unit_test_state
 {
     bool ahrs_solved = false;
-    float ahrs_dt_s = 0.0f;
-    float ahrs_dt_min_s = 0.0f;
-    float ahrs_dt_max_s = 0.0f;
-    std::uint32_t ahrs_loop_runtime_us = 0;
-    std::uint32_t ahrs_loop_runtime_max_us = 0;
-    std::uint32_t ahrs_loop_runtime_overruns = 0;
-    float ahrs_loop_runtime_avg_us = 0.0f;
-    std::uint32_t monitor_runtime_us = 0;
-    std::uint32_t monitor_runtime_max_us = 0;
-    float monitor_runtime_avg_us = 0.0f;
     float quaternion[4] = {1.0f, 0.0f, 0.0f, 0.0f};
     float yaw = 0.0f;
     float pitch = 0.0f;
     float roll = 0.0f;
     float total_yaw = 0.0f;
+    float imu_temperature = 0.0f;
+    bool imu_temperature_ready = false;
+    bool imu_temperature_control_ok = false;
+    bool imu_calibrated = false;
+    std::uint32_t imu_sample_error_count = 0;
+    std::uint32_t imu_spi_read_error_count = 0;
+    std::uint32_t imu_spi_write_error_count = 0;
+    std::uint32_t imu_spi_lock_error_count = 0;
+
+    // Shadow Tactical ESKF diagnostics.  These fields are intentionally kept
+    // in the global demo_debug_instance for live debugger comparison.
+    bool tactical_solved = false;
+    float tactical_quaternion[4] = {1.0f, 0.0f, 0.0f, 0.0f};
+    float tactical_yaw = 0.0f;
+    float tactical_pitch = 0.0f;
+    float tactical_roll = 0.0f;
+    float tactical_gyro_bias[3] = {};
+    float tactical_accel_weight = 1.0f;
+    float tactical_accel_direction_error = 0.0f;
+    float tactical_accel_magnitude_g = 0.0f;
+    float tactical_gyro_magnitude_rad_s = 0.0f;
+    float tactical_accel_magnitude_variance = 0.0f;
+    float tactical_gyro_magnitude_variance = 0.0f;
+    float tactical_impact_acc_delta_g = 0.0f;
+    float tactical_impact_gyro_delta_rad_s = 0.0f;
+    std::uint8_t tactical_motion_state = 0;
+    std::uint8_t tactical_impact_state = 0;
+    bool tactical_paddling = false;
+    bool tactical_linear_motion = false;
+    std::uint32_t tactical_update_count = 0;
+    float tactical_earth_acceleration[3] = {};
+    float tactical_heave_velocity = 0.0f;
+    float tactical_heave_position = 0.0f;
+
+    // Formal EKF minus Tactical ESKF, wrapped to [-pi, pi].
+    float yaw_difference = 0.0f;
+    float pitch_difference = 0.0f;
+    float roll_difference = 0.0f;
 };
 
 struct remoter_unit_state : unit_test_state
 {
     bool offline = true;
     std::uint32_t source = 0;
+#if ENABLE_PS2
+    std::uint32_t ps2_link = 0;
+    std::uint16_t ps2_buttons = 0;
+    std::uint16_t ps2_raw_buttons = 0;
+    std::uint16_t ps2_pressed = 0;
+    std::uint16_t ps2_released = 0;
+    std::uint16_t ps2_pressed_seen_mask = 0;
+    std::uint16_t ps2_released_seen_mask = 0;
+    bool ps2_mapping_match = false;
+    bool ps2_mapping_pending = false;
+    bool ps2_square = false;
+    bool ps2_cross = false;
+    bool ps2_circle = false;
+    bool ps2_triangle = false;
+    bool ps2_r1 = false;
+    bool ps2_l1 = false;
+    bool ps2_r2 = false;
+    bool ps2_l2 = false;
+    bool ps2_left = false;
+    bool ps2_down = false;
+    bool ps2_right = false;
+    bool ps2_up = false;
+    bool ps2_start = false;
+    bool ps2_r3 = false;
+    bool ps2_l3 = false;
+    bool ps2_select = false;
+    std::uint8_t ps2_raw_left_x = 127;
+    std::uint8_t ps2_raw_left_y = 128;
+    std::uint8_t ps2_raw_right_x = 127;
+    std::uint8_t ps2_raw_right_y = 128;
+    std::uint32_t ps2_frame_count = 0;
+    std::uint32_t ps2_signal_count = 0;
+    std::uint32_t ps2_last_signal_tick = 0;
+    std::uint32_t ps2_raw_update_count = 0;
+    std::uint32_t ps2_upper_event_count = 0;
+    std::uint32_t ps2_button_event_count = 0;
+    std::uint32_t ps2_last_button_latency_ticks = 0;
+    std::uint32_t ps2_max_button_latency_ticks = 0;
+    std::uint32_t ps2_frame_period_ticks = 0;
+    std::uint32_t ps2_max_frame_period_ticks = 0;
+#endif
     std::uint32_t left_sw = 0;
     std::uint32_t right_sw = 0;
     std::uint32_t last_left_sw = 0;

@@ -137,4 +137,14 @@ void pid::clear()
     scalar_b = 1.0f;
 }
 
+void pid::reset_state(float reference, float feedback)
+{
+    ref = reference;
+    fdb = feedback;
+    last_fdb = feedback;
+    err[0] = err[1] = err[2] = 0.0f;
+    p_out = i_out = d_out = result = 0.0f;
+    i_term = 0.0f;
+}
+
 } // namespace control

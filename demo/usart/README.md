@@ -2,18 +2,12 @@
 
 ## 作用
 
-本 demo 用于验证 `bsp::usart` 的 USART1 DMA RX-to-IDLE 收发链路。它只关注 BSP 串口链路，不承载业务协议。
+本 demo 用于验证 `bsp::usart` 的 USART1 DMA 收发链路。
 
 - 板端使用 `app::uart::usart1`。
 - 主机发送固定 24 字节 `host_packet`。
 - 板端校验 magic 与 checksum，通过后返回 32 字节 `device_packet`。
 - 固件侧不使用 print，状态通过 `demo_debug_instance.usart` 展开观察。
-
-## 配置前提
-
-- `board/board.ioc` 中存在 USART1。
-- 当前测试串口没有与遥控器串口冲突。
-- `demo/app.cpp` 中启用 `demo::usart::start()`。
 
 ## 调试流程
 

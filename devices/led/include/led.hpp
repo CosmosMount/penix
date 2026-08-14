@@ -15,7 +15,6 @@ enum class color : uint8_t
 
 void init();
 void on(color c);
-void off(color c);
 void toggle(color c);
 void blink(color c);
 void all_off();

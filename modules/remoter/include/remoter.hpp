@@ -6,6 +6,7 @@
 #include "types.hpp"
 #include "tx_api.h"
 
+#include <cstddef>
 #include <cstdint>
 
 namespace remoter
@@ -24,10 +25,20 @@ struct vt03_config
     std::uint32_t thread_priority = 2;
 };
 
+struct ps2_config
+{
+    bsp::usart::port uart_port = app::uart::ps2;
+    std::uint32_t thread_priority = 2;
+    std::uint32_t receiver_offline_timeout_ticks = 600;
+    std::uint32_t frame_timeout_ticks = 20;
+    float deadzone = 0.08f;
+};
+
 struct config
 {
     dr16_config dr16{};
     vt03_config vt03{};
+    ps2_config ps2{};
     std::uint32_t thread_priority = 2;
     std::uint32_t offline_timeout_ticks = 120;
 };
@@ -49,7 +60,8 @@ private:
     dr16_config cfg_{};
     TX_THREAD thread_{};
     TX_SEMAPHORE rx_sem_{};
-    alignas(8) std::uint8_t stack_[768]{};
+    // F407 DR16 receive and publish paths leave insufficient headroom at 768 B.
+    alignas(8) std::uint8_t stack_[1536]{};
 
     std::uint8_t* rx_buffer_ = nullptr;
     alignas(4) std::uint8_t frame_buffers_[2][dr16_frame_size]{};
@@ -88,6 +100,36 @@ private:
     bool initialized_ = false;
 };
 
+class ps2
+{
+public:
+    static ps2& instance();
+
+    bool init(const ps2_config& cfg = {});
+
+private:
+    static constexpr std::size_t stream_buffer_size = 64;
+
+    static void ps2_thread_entry(ULONG arg);
+    static void ps2_rx_callback(bsp::usart::port port, const bsp::usart::rx_frame& frame,
+                                void* user_data);
+    bool create_resources();
+
+    ps2_config cfg_{};
+    TX_THREAD thread_{};
+    TX_SEMAPHORE rx_sem_{};
+    // Connected F407 input overflowed the 768 B PS2 receive stack.
+    alignas(8) std::uint8_t stack_[1536]{};
+
+    std::uint8_t* rx_buffer_ = nullptr;
+    std::uint8_t stream_buffer_[stream_buffer_size]{};
+    volatile std::size_t stream_head_ = 0;
+    volatile std::size_t stream_tail_ = 0;
+    volatile bool stream_overflow_ = false;
+    msg::topic* remoter_topic_ = nullptr;
+    bool initialized_ = false;
+};
+
 class service
 {
 public:
@@ -101,10 +143,12 @@ private:
 
     config cfg_{};
     TX_THREAD thread_{};
-    alignas(8) std::uint8_t stack_[768]{};
+    // F407 source merging can overflow 768 B and corrupt the ThreadX control block.
+    alignas(8) std::uint8_t stack_[1536]{};
     msg::topic* remoter_topic_ = nullptr;
     msg::subscriber dr16_sub_{};
     msg::subscriber vt03_sub_{};
+    msg::subscriber ps2_sub_{};
     bool initialized_ = false;
 };
 

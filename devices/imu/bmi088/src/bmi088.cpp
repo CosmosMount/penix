@@ -9,6 +9,7 @@
 #include "tx_api.h"
 
 #include <cmath>
+#include <cstring>
 
 namespace imu
 {
@@ -31,55 +32,176 @@ bsp::spi::cs to_spi_cs(bmi088::cs target)
 
 } // namespace
 
-void bmi088::write_reg(cs target, uint8_t addr, const uint8_t* data, uint8_t len)
+bool bmi088::initialize_transport()
 {
+    if (spi_mutex_ready_)
+    {
+        return true;
+    }
+    if (tx_mutex_create(&spi_mutex_, const_cast<CHAR*>("bmi088_spi"), TX_INHERIT) != TX_SUCCESS)
+    {
+        ++spi_lock_error_count_;
+        return false;
+    }
+    spi_mutex_ready_ = true;
+    return true;
+}
+
+bool bmi088::lock_spi()
+{
+    if (!spi_mutex_ready_ || tx_mutex_get(&spi_mutex_, TX_WAIT_FOREVER) != TX_SUCCESS)
+    {
+        ++spi_lock_error_count_;
+        return false;
+    }
+    return true;
+}
+
+bool bmi088::unlock_spi()
+{
+    if (tx_mutex_put(&spi_mutex_) != TX_SUCCESS)
+    {
+        ++spi_lock_error_count_;
+        return false;
+    }
+    return true;
+}
+
+bool bmi088::write_reg(cs target, uint8_t addr, const uint8_t* data, uint8_t len)
+{
+    if (!lock_spi())
+    {
+        return false;
+    }
+
     bsp::spi::cs_set(to_spi_cs(target), true);
     uint8_t tx_addr = static_cast<uint8_t>(addr & spi_write);
-    bsp::spi::transmit(imu_spi, &tx_addr, 1, 1000);
-    if (len > 0 && data != nullptr)
+    const bool address_ok = bsp::spi::transmit(imu_spi, &tx_addr, 1, 1000) == types::status::ok;
+    bool data_ok = true;
+    if (address_ok && len > 0 && data != nullptr)
     {
-        bsp::spi::transmit(imu_spi, data, len, 1000);
+        data_ok = bsp::spi::transmit(imu_spi, data, len, 1000) == types::status::ok;
     }
     if (test.init_err)
     {
         tx_thread_sleep(1);
     }
     bsp::spi::cs_set(to_spi_cs(target), false);
+    const bool unlock_ok = unlock_spi();
+    if (!address_ok || !data_ok)
+    {
+        ++spi_write_error_count_;
+    }
+    return address_ok && data_ok && unlock_ok;
 }
 
-void bmi088::read_reg(cs target, uint8_t addr, uint8_t* data, uint8_t len)
+bool bmi088::read_reg(cs target, uint8_t addr, uint8_t* data, uint8_t len)
 {
+    if (data == nullptr || len == 0 || !lock_spi())
+    {
+        ++spi_read_error_count_;
+        return false;
+    }
+
     bsp::spi::cs_set(to_spi_cs(target), true);
     uint8_t tx_addr = static_cast<uint8_t>(addr | spi_read);
-    bsp::spi::transmit(imu_spi, &tx_addr, 1, 1000);
-    bsp::spi::receive(imu_spi, data, len, 1000);
+    const bool address_ok = bsp::spi::transmit(imu_spi, &tx_addr, 1, 1000) == types::status::ok;
+    const bool data_ok = address_ok && bsp::spi::receive(imu_spi, data, len, 1000) == types::status::ok;
     bsp::spi::cs_set(to_spi_cs(target), false);
+    const bool unlock_ok = unlock_spi();
+    if (!address_ok || !data_ok)
+    {
+        ++spi_read_error_count_;
+    }
+    return address_ok && data_ok && unlock_ok;
 }
 
 void bmi088::calibrate()
 {
     constexpr int calib_samples = 4000;
+    constexpr int calib_max_attempts = 4000;
+    constexpr float gravity = 9.80665f;
+    constexpr float max_gyro_norm = 0.15f;
+    constexpr float max_accel_norm_error = 0.6f;
+    constexpr float max_gyro_mean_norm = 0.03f;
+    constexpr float max_gyro_stddev = 0.03f;
+    constexpr float max_accel_norm_stddev = 0.15f;
     float gyro_sum[3] = {0.0f, 0.0f, 0.0f};
+    float gyro_sq_sum[3] = {0.0f, 0.0f, 0.0f};
+    float accel_norm_sum = 0.0f;
+    float accel_norm_sq_sum = 0.0f;
+    int sample_count = 0;
     gyrodata gyro_sample{};
+    accdata accel_sample{};
 
     gyro_offset[0] = 0.0f;
     gyro_offset[1] = 0.0f;
     gyro_offset[2] = 0.0f;
 
-    for (int i = 0; i < calib_samples; ++i)
+    for (int attempt = 0; attempt < calib_max_attempts && sample_count < calib_samples; ++attempt)
     {
-        read_gyro(&gyro_sample);
+        if (!read_gyro(&gyro_sample) || !read_acc(&accel_sample))
+        {
+            sample_count = 0;
+            std::memset(gyro_sum, 0, sizeof(gyro_sum));
+            std::memset(gyro_sq_sum, 0, sizeof(gyro_sq_sum));
+            accel_norm_sum = 0.0f;
+            accel_norm_sq_sum = 0.0f;
+            tx_thread_sleep(1);
+            continue;
+        }
+        const float gyro_norm = std::sqrt(gyro_sample.x * gyro_sample.x + gyro_sample.y * gyro_sample.y +
+                                          gyro_sample.z * gyro_sample.z);
+        const float accel_norm = std::sqrt(accel_sample.x * accel_sample.x + accel_sample.y * accel_sample.y +
+                                           accel_sample.z * accel_sample.z);
+        if (gyro_norm > max_gyro_norm || std::fabs(accel_norm - gravity) > max_accel_norm_error)
+        {
+            sample_count = 0;
+            std::memset(gyro_sum, 0, sizeof(gyro_sum));
+            std::memset(gyro_sq_sum, 0, sizeof(gyro_sq_sum));
+            accel_norm_sum = 0.0f;
+            accel_norm_sq_sum = 0.0f;
+            tx_thread_sleep(1);
+            continue;
+        }
         gyro_sum[0] += gyro_sample.x;
         gyro_sum[1] += gyro_sample.y;
         gyro_sum[2] += gyro_sample.z;
+        gyro_sq_sum[0] += gyro_sample.x * gyro_sample.x;
+        gyro_sq_sum[1] += gyro_sample.y * gyro_sample.y;
+        gyro_sq_sum[2] += gyro_sample.z * gyro_sample.z;
+        accel_norm_sum += accel_norm;
+        accel_norm_sq_sum += accel_norm * accel_norm;
+        ++sample_count;
         tx_thread_sleep(1);
     }
 
-    gyro_offset[0] = gyro_sum[0] / static_cast<float>(calib_samples);
-    gyro_offset[1] = gyro_sum[1] / static_cast<float>(calib_samples);
-    gyro_offset[2] = gyro_sum[2] / static_cast<float>(calib_samples);
+    bool stationary = sample_count == calib_samples;
+    if (stationary)
+    {
+        const float inv_count = 1.0f / static_cast<float>(sample_count);
+        float gyro_mean[3]{};
+        for (int axis = 0; axis < 3; ++axis)
+        {
+            gyro_mean[axis] = gyro_sum[axis] * inv_count;
+            const float variance = std::fmax(0.0f, gyro_sq_sum[axis] * inv_count - gyro_mean[axis] * gyro_mean[axis]);
+            stationary = stationary && std::sqrt(variance) <= max_gyro_stddev;
+        }
+        const float gyro_mean_norm = std::sqrt(gyro_mean[0] * gyro_mean[0] + gyro_mean[1] * gyro_mean[1] +
+                                                gyro_mean[2] * gyro_mean[2]);
+        const float accel_mean = accel_norm_sum * inv_count;
+        const float accel_variance = std::fmax(0.0f, accel_norm_sq_sum * inv_count - accel_mean * accel_mean);
+        stationary = stationary && gyro_mean_norm <= max_gyro_mean_norm &&
+                     std::sqrt(accel_variance) <= max_accel_norm_stddev;
+        if (stationary)
+        {
+            gyro_offset[0] = gyro_mean[0];
+            gyro_offset[1] = gyro_mean[1];
+            gyro_offset[2] = gyro_mean[2];
+        }
+    }
 
-    if (std::fabs(gyro_offset[0]) > 0.1f || std::fabs(gyro_offset[1]) > 0.1f ||
+    if (!stationary || std::fabs(gyro_offset[0]) > 0.1f || std::fabs(gyro_offset[1]) > 0.1f ||
         std::fabs(gyro_offset[2]) > 0.1f)
     {
         test.calibrate_err = true;
@@ -169,8 +291,8 @@ void bmi088::temp_thread_entry(ULONG arg)
 #endif
         for (;;)
         {
-            self->read_temperature(&self->acc.temperature);
-            if (!self->valid_temperature(self->acc.temperature))
+            if (!self->read_temperature(&self->acc.temperature) ||
+                !self->valid_temperature(self->acc.temperature))
             {
                 self->temperature_ready_ = false;
                 self->test.temp_ctrl_err = true;
@@ -192,22 +314,28 @@ void bmi088::temp_thread_entry(ULONG arg)
         static_cast<uint8_t>(control::pid_mode::integral_limit) |
         static_cast<uint8_t>(control::pid_mode::changing_integral_rate) |
         static_cast<uint8_t>(control::pid_mode::derivative_on_measurement));
-    pid.tune(650.0f, 0.06f, 10.0f);
-    pid.max_out = 300.0f;
-    pid.max_iout = 300.0f;
+    pid.tune(300.0f, 0.06f, 100.0f);
+    pid.max_out = 90.0f;
+    pid.max_iout = 200.0f;
     pid.scalar_a = 3.5f;
-    pid.scalar_b = 0.08f;
+    pid.scalar_b = 0.2f;
 
 #if HAS_PWM_TIM3_CH4 || HAS_PWM_TIM12_CH2
     bsp::pwm::start(imu_heater_pwm);
 #endif
 
+    tx_thread_sleep(1000);
+    if (self->read_temperature(&self->acc.temperature))
+    {
+        pid.fdb = self->acc.temperature;
+    }
+
     for (;;)
     {
-        self->read_temperature(&self->acc.temperature);
-        self->temperature_ready_ = self->valid_temperature(self->acc.temperature) &&
+        const bool temperature_read_ok = self->read_temperature(&self->acc.temperature);
+        self->temperature_ready_ = temperature_read_ok && self->valid_temperature(self->acc.temperature) &&
                                    self->acc.temperature >= temp_ready_threshold;
-        if (!self->valid_temperature(self->acc.temperature))
+        if (!temperature_read_ok || !self->valid_temperature(self->acc.temperature))
         {
             self->test.temp_ctrl_err = true;
             self->update_status_from_selftest();
@@ -238,6 +366,7 @@ float bmi088::calculate_temperature_duty(float temperature)
         return heater_duty_;
     }
 
+    const temp_state previous_state = temp_state_;
     switch (temp_state_)
     {
     case temp_state::boost:
@@ -284,6 +413,15 @@ float bmi088::calculate_temperature_duty(float temperature)
             temp_state_ = temp_state::boost;
             heater_duty_ = temp_reboost_duty;
         }
+        else
+        {
+            // Keep the target band closed-loop, matching the legacy Hold
+            // behaviour instead of retaining the last Approach duty.
+            temp_pid.ref = target_temp;
+            temp_pid.fdb = temperature;
+            temp_pid.update();
+            heater_duty_ = math::clamp(temp_pid.result / 999.0f, 0.0f, temp_hold_max_duty);
+        }
         break;
 
     case temp_state::overtemperature:
@@ -295,16 +433,21 @@ float bmi088::calculate_temperature_duty(float temperature)
         break;
     }
 
+    if (previous_state != temp_state_ &&
+        (previous_state == temp_state::hold || temp_state_ == temp_state::overtemperature))
+    {
+        temp_pid.reset_state(target_temp, temperature);
+    }
+
     return heater_duty_;
 }
 
 float bmi088::calculate_approach_duty(float temperature)
 {
-    temp_pid.ref = target_temp;
-    temp_pid.fdb = temperature;
-    temp_pid.update();
-
-    return math::clamp(temp_pid.result / 999.0f, 0.0f, temp_approach_max_duty);
+    const float ratio = math::clamp((temp_hold_enter - temperature) /
+                                    (temp_hold_enter - temp_boost_enter),
+                                    0.0f, 1.0f);
+    return 0.029f + (0.04f - 0.025f) * ratio;
 }
 
 void bmi088::verify_acc_chip_id()
@@ -403,7 +546,7 @@ void bmi088::configure()
     write_reg(cs::gyro, gyro_int_ctrl_addr, &tx, 1);
     tx_thread_sleep(5);
 
-    tx = 0x00;
+    tx = 0x01;
     write_reg(cs::gyro, gyro_int_io_conf_addr, &tx, 1);
     tx_thread_sleep(5);
 
@@ -412,16 +555,19 @@ void bmi088::configure()
     tx_thread_sleep(5);
 }
 
-void bmi088::read_acc(accdata* data)
+bool bmi088::read_acc(accdata* data)
 {
     if (data == nullptr)
     {
-        return;
+        return false;
     }
 
     uint8_t buf[acc_xyz_len + 1] = {0};
     int16_t raw[3] = {0};
-    read_reg(cs::acc, acc_xyz_addr, buf, acc_xyz_len + 1);
+    if (!read_reg(cs::acc, acc_xyz_addr, buf, acc_xyz_len + 1))
+    {
+        return false;
+    }
 
     raw[0] = static_cast<int16_t>((buf[2] << 8) | buf[1]);
     raw[1] = static_cast<int16_t>((buf[4] << 8) | buf[3]);
@@ -432,18 +578,22 @@ void bmi088::read_acc(accdata* data)
     data->z = static_cast<float>(raw[2]) * accel_6g_sensitivity + accel_preoffset_z;
     data->temperature = acc.temperature;
     update_acc_cache(*data);
+    return true;
 }
 
-void bmi088::read_gyro(gyrodata* data)
+bool bmi088::read_gyro(gyrodata* data)
 {
     if (data == nullptr)
     {
-        return;
+        return false;
     }
 
     uint8_t buf[gyro_xyz_len] = {0};
     int16_t raw[3] = {0};
-    read_reg(cs::gyro, gyro_xyz_addr, buf, gyro_xyz_len);
+    if (!read_reg(cs::gyro, gyro_xyz_addr, buf, gyro_xyz_len))
+    {
+        return false;
+    }
 
     raw[0] = static_cast<int16_t>((buf[1] << 8) | buf[0]);
     raw[1] = static_cast<int16_t>((buf[3] << 8) | buf[2]);
@@ -453,17 +603,21 @@ void bmi088::read_gyro(gyrodata* data)
     data->y = static_cast<float>(raw[1]) * gyro_1000_sensitivity - gyro_offset[1];
     data->z = static_cast<float>(raw[2]) * gyro_1000_sensitivity - gyro_offset[2];
     update_gyro_cache(*data);
+    return true;
 }
 
-void bmi088::read_temperature(float* temp)
+bool bmi088::read_temperature(float* temp)
 {
     if (temp == nullptr)
     {
-        return;
+        return false;
     }
 
     uint8_t buf[temp_len + 1] = {0};
-    read_reg(cs::acc, temp_addr, buf, temp_len + 1);
+    if (!read_reg(cs::acc, temp_addr, buf, temp_len + 1))
+    {
+        return false;
+    }
     const uint16_t temp_uint11 = static_cast<uint16_t>((buf[1] << 3) | (buf[2] >> 5));
     int16_t temp_int11 = static_cast<int16_t>(temp_uint11);
     if (temp_uint11 > 1023)
@@ -472,24 +626,24 @@ void bmi088::read_temperature(float* temp)
     }
     *temp = static_cast<float>(temp_int11) * temp_unit + temp_bias;
     update_temperature_cache(*temp);
+    return true;
 }
 
 bool bmi088::read(reading& out)
 {
     accdata acc_sample{};
     gyrodata gyro_sample{};
-    float temp = 0.0f;
-
-    read_acc(&acc_sample);
-    read_gyro(&gyro_sample);
-    read_temperature(&temp);
+    if (!read_acc(&acc_sample) || !read_gyro(&gyro_sample))
+    {
+        return false;
+    }
 
     out.accel = {acc_sample.x, acc_sample.y, acc_sample.z};
     out.gyro = {gyro_sample.x, gyro_sample.y, gyro_sample.z};
-    out.temperature = temp;
+    out.temperature = acc.temperature;
     out.sensor_time = acc_sample.sensor_time;
     data = out;
-    return ready() && valid_temperature(temp);
+    return ready();
 }
 
 } // namespace imu

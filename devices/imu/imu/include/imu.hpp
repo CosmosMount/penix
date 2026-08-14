@@ -65,9 +65,9 @@ public:
 
     virtual void configure() = 0;
     virtual void calibrate() = 0;
-    virtual void read_acc(accdata* data) = 0;
-    virtual void read_gyro(gyrodata* data) = 0;
-    virtual void read_temperature(float* temp) = 0;
+    virtual bool read_acc(accdata* data) = 0;
+    virtual bool read_gyro(gyrodata* data) = 0;
+    virtual bool read_temperature(float* temp) = 0;
     virtual bool read(reading& data) = 0;
     virtual void verify_acc_chip_id() = 0;
     virtual void verify_gyro_chip_id() = 0;

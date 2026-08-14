@@ -43,13 +43,13 @@ protected:
     void update_sensor_data(const uint8_t* buffer) override;
 };
 
-class lk8025 : public lkmotor
+class lk9025 : public lkmotor
 {
 public:
     static constexpr float raw_pos_to_rad = 0.00009587379924285f;
     static constexpr float raw_dps_to_rps = 0.0174532925199433f;
 
-    explicit lk8025(config cfg);
+    explicit lk9025(config cfg);
 
 protected:
     void update_sensor_data(const uint8_t* buffer) override;

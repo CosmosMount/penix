@@ -55,11 +55,11 @@ void lk8016::update_sensor_data(const uint8_t* buffer)
     fdb.torque = torque_from_current(fdb.current);
 }
 
-lk8025::lk8025(config cfg) : lkmotor(cfg, 0.00512f)
+lk9025::lk9025(config cfg) : lkmotor(cfg, 0.00512f)
 {
 }
 
-void lk8025::update_sensor_data(const uint8_t* buffer)
+void lk9025::update_sensor_data(const uint8_t* buffer)
 {
     raw.last_ecd = raw.ecd;
     raw.ecd = static_cast<uint16_t>((buffer[7] << 8) | buffer[6]);

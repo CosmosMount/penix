@@ -28,9 +28,9 @@ public:
 
     void configure() override;
     void calibrate() override;
-    void read_acc(accdata* data) override;
-    void read_gyro(gyrodata* data) override;
-    void read_temperature(float* temp) override;
+    bool read_acc(accdata* data) override;
+    bool read_gyro(gyrodata* data) override;
+    bool read_temperature(float* temp) override;
     bool read(reading& data) override;
     void verify_acc_chip_id() override;
     void verify_gyro_chip_id() override;
@@ -39,9 +39,17 @@ public:
     void temperature_control(float target_temp) override;
 
     void set_heater_duty(float ratio);
+    bool initialize_transport();
     bool start_temperature_control(const temp_control_config& cfg);
     bool temperature_ready() const { return temperature_ready_; }
     void set_gyro_data_ready_callback(data_ready_callback callback, void* user);
+    uint32_t spi_read_error_count() const { return spi_read_error_count_; }
+    uint32_t spi_write_error_count() const { return spi_write_error_count_; }
+    uint32_t spi_lock_error_count() const { return spi_lock_error_count_; }
+    vector3 calibrated_gyro_offset() const
+    {
+        return {gyro_offset[0], gyro_offset[1], gyro_offset[2]};
+    }
 
 private:
     enum class temp_state : uint8_t
@@ -104,7 +112,7 @@ private:
     static constexpr float accel_preoffset_y = 0.00647039594993548f;
     static constexpr float accel_preoffset_z = 0.014968990490337293f;
 
-    static constexpr float temp_ready_threshold = 44.7f;
+    static constexpr float temp_ready_threshold = 44.3f;
     static constexpr float temp_boost_enter = 41.0f;
     static constexpr float temp_hold_enter = 44.9f;
     static constexpr float temp_over_enter = 45.2f;
@@ -114,6 +122,7 @@ private:
     static constexpr float temp_boost_duty = 0.06f;
     static constexpr float temp_reboost_duty = 0.05f;
     static constexpr float temp_approach_max_duty = 0.05f;
+    static constexpr float temp_hold_max_duty = 0.04f;
     static constexpr ULONG temp_control_period_ticks = 125;
 
     static void temp_thread_entry(ULONG arg);
@@ -121,20 +130,27 @@ private:
     float calculate_temperature_duty(float temperature);
     float calculate_approach_duty(float temperature);
     bool valid_temperature(float temperature) const;
-    void read_reg(cs target, uint8_t addr, uint8_t* data, uint8_t len);
-    void write_reg(cs target, uint8_t addr, const uint8_t* data, uint8_t len);
+    bool read_reg(cs target, uint8_t addr, uint8_t* data, uint8_t len);
+    bool write_reg(cs target, uint8_t addr, const uint8_t* data, uint8_t len);
+    bool lock_spi();
+    bool unlock_spi();
 
     temp_control_config temp_cfg_{};
     TX_THREAD temp_thread_{};
+    TX_MUTEX spi_mutex_{};
     alignas(8) uint8_t temp_stack_[768]{};
 
     float gyro_offset[3]{};
     bool temp_thread_started_ = false;
+    bool spi_mutex_ready_ = false;
     volatile bool temperature_ready_ = false;
     temp_state temp_state_ = temp_state::boost;
     float heater_duty_ = 0.0f;
     data_ready_callback gyro_data_ready_callback_ = nullptr;
     void* gyro_data_ready_user_ = nullptr;
+    volatile uint32_t spi_read_error_count_ = 0;
+    volatile uint32_t spi_write_error_count_ = 0;
+    volatile uint32_t spi_lock_error_count_ = 0;
     filter::iir sensor_filter[6] = {
         filter::iir(333.0f, 0.707f, 0.001f), filter::iir(333.0f, 0.707f, 0.001f),
         filter::iir(333.0f, 0.707f, 0.001f), filter::iir(333.0f, 0.707f, 0.001f),

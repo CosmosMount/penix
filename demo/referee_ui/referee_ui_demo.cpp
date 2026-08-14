@@ -23,6 +23,7 @@ enum stage : std::uint32_t
     monitor_thread_started = 1U << 3U,
     frame_received = 1U << 4U,
     ui_updated = 1U << 5U,
+    application_topic_created = 1U << 6U,
 };
 
 enum failure : std::uint32_t
@@ -31,6 +32,24 @@ enum failure : std::uint32_t
     ui_init_failed = 1U << 1U,
     subscribe_failed = 1U << 2U,
     thread_create_failed = 1U << 3U,
+    topic_create_failed = 1U << 4U,
+};
+
+struct application_referee_data
+{
+    bool online = false;
+    std::uint32_t update_count = 0;
+    GameRobotStatus_t robot_status{};
+    std::uint16_t heat_now = 0;
+    std::uint16_t power_buffer = 0;
+    std::uint8_t remained_energy = 0;
+    RobotHurt_t robot_hurt{};
+};
+
+struct referee_adapter_context
+{
+    msg::topic* topic = nullptr;
+    application_referee_data data{};
 };
 
 constexpr ULONG monitor_period_ticks = 20U;
@@ -42,6 +61,7 @@ alignas(8) std::uint8_t monitor_stack[1024]{};
 bool monitor_started = false;
 bool objects_created = false;
 msg::subscriber referee_sub{};
+referee_adapter_context referee_adapter{};
 int8_t hp_text_id = -1;
 int8_t heat_text_id = -1;
 char hp_text[30]{};
@@ -58,7 +78,26 @@ void create_objects()
     objects_created = hp_text_id >= 0 && heat_text_id >= 0;
 }
 
-void sync_debug(const referee::data& data, std::uint32_t stages) noexcept
+void publish_referee_data(const referee::packet_store& packets,
+                          const referee::update_info& update, void* context)
+{
+    auto& adapter = *static_cast<referee_adapter_context*>(context);
+
+    adapter.data.robot_status = packets.game_robot_status;
+    adapter.data.heat_now = packets.power_heat_data.shoot_id1_17mm_cooling_heat;
+    adapter.data.power_buffer = packets.power_heat_data.chassis_power_buffer;
+    adapter.data.remained_energy = packets.buff.remained_energy;
+    adapter.data.robot_hurt = packets.robot_hurt;
+    if (update.got_valid_frame)
+    {
+        adapter.data.online = true;
+        ++adapter.data.update_count;
+    }
+
+    msg::publish(adapter.topic, adapter.data);
+}
+
+void sync_debug(const application_referee_data& data, std::uint32_t stages) noexcept
 {
     auto& state = demo::debug::debug_instance.referee_ui;
     if (data.update_count > 0U)
@@ -97,6 +136,10 @@ void sync_debug(const referee::data& data, std::uint32_t stages) noexcept
     {
         state.failure_mask |= thread_create_failed;
     }
+    if ((stages & application_topic_created) == 0U)
+    {
+        state.failure_mask |= topic_create_failed;
+    }
 
     state.failed_count = state.failure_mask == 0U ? 0U : 1U;
     state.passed = state.failure_mask == 0U && data.online;
@@ -105,9 +148,10 @@ void sync_debug(const referee::data& data, std::uint32_t stages) noexcept
 
 void monitor_entry(ULONG /*arg*/)
 {
-    referee::data data{};
+    application_referee_data data{};
     std::uint32_t stages =
-        referee_initialized | ui_initialized | subscriber_created | monitor_thread_started;
+        referee_initialized | ui_initialized | subscriber_created | monitor_thread_started |
+        application_topic_created;
 
     for (;;)
     {
@@ -142,14 +186,27 @@ void run() noexcept
     auto& state = demo::debug::debug_instance.referee_ui;
     state = {};
     state.started = true;
-    state.total_count = 6U;
+    state.total_count = 7U;
+
+    if (msg::init() != types::status::ok)
+    {
+        state.failure_mask = topic_create_failed;
+        state.failed_count = 1U;
+        return;
+    }
+    referee_adapter = {};
+    referee_adapter.topic = msg::create<application_referee_data>();
+    if (referee_adapter.topic == nullptr)
+    {
+        state.failure_mask = topic_create_failed;
+        state.failed_count = 1U;
+        return;
+    }
 
     referee::config ref_cfg{};
     ref_cfg.thread_priority = params::referee::thread_priority;
-    ref_cfg.receive.game_robot_status = true;
-    ref_cfg.receive.power_heat = true;
-    ref_cfg.receive.buff = false;
-    ref_cfg.receive.robot_hurt = false;
+    ref_cfg.on_update = publish_referee_data;
+    ref_cfg.update_context = &referee_adapter;
     if (!referee::service::instance().init(ref_cfg))
     {
         state.failure_mask = referee_init_failed;
@@ -165,7 +222,7 @@ void run() noexcept
     }
     create_objects();
 
-    referee_sub = msg::subscribe<referee::data>();
+    referee_sub = msg::subscribe<application_referee_data>();
     if (!referee_sub.valid())
     {
         state.failure_mask = subscribe_failed;
@@ -190,7 +247,8 @@ void run() noexcept
         monitor_started = true;
     }
 
-    sync_debug({}, referee_initialized | ui_initialized | subscriber_created | monitor_thread_started);
+    sync_debug({}, referee_initialized | ui_initialized | subscriber_created |
+                       monitor_thread_started | application_topic_created);
 }
 
 } // namespace demo::referee_ui
