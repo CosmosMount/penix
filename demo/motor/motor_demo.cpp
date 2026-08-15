@@ -2,9 +2,8 @@
 
 #include "demo_debug.hpp"
 #include "djimotorhandler.hpp"
-#include "djimotors.hpp"
 #include "dmmotorhandler.hpp"
-#include "dmmotors.hpp"
+#include "motormodel.hpp"
 #include "robot_config.hpp"
 #include "tx_api.h"
 
@@ -49,50 +48,8 @@ constexpr float dm_mit_kp = 0.0f;
 constexpr float dm_mit_kd = 0.0f;
 constexpr float dm_mit_torque = 0.2f;
 
-template <robot::motors::model Model>
-struct dji_motor_type;
-
-template <>
-struct dji_motor_type<robot::motors::model::dji_m2006>
-{
-    using type = motors::m2006;
-};
-
-template <>
-struct dji_motor_type<robot::motors::model::dji_m3508>
-{
-    using type = motors::m3508;
-};
-
-template <>
-struct dji_motor_type<robot::motors::model::dji_gm6020>
-{
-    using type = motors::gm6020;
-};
-
-template <>
-struct dji_motor_type<robot::motors::model::dji_xroll>
-{
-    using type = motors::xroll;
-};
-
-template <robot::motors::model Model>
-struct dm_motor_type;
-
-template <>
-struct dm_motor_type<robot::motors::model::dm_dm4310>
-{
-    using type = motors::dm4310;
-};
-
-template <>
-struct dm_motor_type<robot::motors::model::dm_dm8009p>
-{
-    using type = motors::dm8009p;
-};
-
-using motor1_type = typename dji_motor_type<robot::motors::motor1_model>::type;
-using motor2_type = typename dm_motor_type<robot::motors::motor2_model>::type;
+using motor1_type = motors::dji_motor_t<robot::motors::motor1_model>;
+using motor2_type = motors::dm_motor_t<robot::motors::motor2_model>;
 
 static_assert(std::is_base_of_v<motors::djimotor, motor1_type>,
               "motor demo motor1 must be a DJI motor model");

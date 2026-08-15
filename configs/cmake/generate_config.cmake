@@ -2,13 +2,18 @@ cmake_minimum_required(VERSION 3.22)
 
 include(${CMAKE_CURRENT_LIST_DIR}/import_ioc.cmake)
 
-if(NOT DEFINED IOC OR NOT DEFINED PARAMS OR NOT DEFINED OUT_DIR)
-    message(FATAL_ERROR "generate_config.cmake requires -DIOC=... -DPARAMS=... -DOUT_DIR=...")
+if(NOT DEFINED IOC OR NOT DEFINED CONFIG OR NOT DEFINED OUT_DIR)
+    message(FATAL_ERROR "generate_config.cmake requires -DIOC=... -DCONFIG=... -DOUT_DIR=...")
 endif()
 
 pnx_ioc_parse("${IOC}")
 
-file(READ "${PARAMS}" params_json)
+file(READ "${CONFIG}" params_json)
+set(robot_json "")
+string(JSON robot_json ERROR_VARIABLE json_err GET "${params_json}" robot)
+if(json_err OR robot_json STREQUAL "null")
+    set(robot_json "")
+endif()
 set(generated_semicolon_token "__PNX_GENERATED_SEMICOLON__")
 
 # --- params.json: build ---
@@ -75,10 +80,8 @@ _pnx_json_bool_to_cmake("${motor_lk}" MOTOR_LK)
 # --- robot.json: optional DMIMU build switch ---
 # Absence of devices.dmimu, or absence/false value of its enabled member,
 # deliberately disables DMIMU. This keeps legacy robot files opt-in.
-set(robot_json "")
 set(HAS_DMIMU 0)
-if(DEFINED ROBOT_CONFIG AND EXISTS "${ROBOT_CONFIG}")
-    file(READ "${ROBOT_CONFIG}" robot_json)
+if(NOT robot_json STREQUAL "")
     string(JSON robot_dmimu_type ERROR_VARIABLE json_err TYPE "${robot_json}" devices dmimu)
     if(NOT json_err)
         if(NOT robot_dmimu_type STREQUAL "OBJECT")
@@ -263,21 +266,21 @@ if(remoter_source STREQUAL "" OR remoter_source STREQUAL "none")
     endif()
 elseif(remoter_source STREQUAL "dr16")
     if(NOT HAS_REMOTER)
-        message(FATAL_ERROR "params.remoter.source=dr16 requires remoter UART RX DMA support in boards/stm32h723/board.ioc")
+        message(FATAL_ERROR "params.remoter.source=dr16 requires remoter UART RX DMA support in ${IOC}")
     endif()
     set(ENABLE_DR16 1)
     set(ENABLE_VT03 0)
     set(ENABLE_PS2 0)
 elseif(remoter_source STREQUAL "vt03")
     if(NOT HAS_VT03)
-        message(FATAL_ERROR "params.remoter.source=vt03 requires UART7 RX DMA support in boards/stm32h723/board.ioc")
+        message(FATAL_ERROR "params.remoter.source=vt03 requires UART7 RX DMA support in ${IOC}")
     endif()
     set(ENABLE_DR16 0)
     set(ENABLE_VT03 1)
     set(ENABLE_PS2 0)
 elseif(remoter_source STREQUAL "ps2")
     if(NOT HAS_PS2)
-        message(FATAL_ERROR "params.remoter.source=ps2 requires the bound remoter UART to have RX DMA support in boards/stm32h723/board.ioc")
+        message(FATAL_ERROR "params.remoter.source=ps2 requires the bound remoter UART to have RX DMA support in ${IOC}")
     endif()
     set(ENABLE_DR16 0)
     set(ENABLE_VT03 0)
@@ -576,7 +579,7 @@ endif()
 string(TOLOWER "${test_report_uart}" test_report_uart)
 pnx_ioc_uart_index("${PNX_IOC_UART_HW}" "${test_report_uart}" test_report_port_idx)
 if(test_report_port_idx LESS 0)
-    message(FATAL_ERROR "params.test.report_uart=${test_report_uart} is not present in boards/stm32h723/board.ioc")
+    message(FATAL_ERROR "params.test.report_uart=${test_report_uart} is not present in ${IOC}")
 endif()
 if(NOT active_remoter_uart STREQUAL "" AND test_report_uart STREQUAL active_remoter_uart)
     message(FATAL_ERROR "params.test.report_uart=${test_report_uart} conflicts with the active remoter UART")
@@ -776,7 +779,7 @@ set(BSP_BINDINGS_CPP "${OUT_DIR}/bsp_bindings.cpp")
 
 file(WRITE "${CONFIG_HPP}"
 "#pragma once\n"
-"// Generated from boards/stm32h723/board.ioc + configs/params.json + configs/robot.json. Do not edit.\n\n"
+"// Generated from ${IOC} + ${CONFIG}. Do not edit.\n\n"
 "#include <array>\n"
 "#include <cstddef>\n"
 "#include <cstdint>\n\n"
@@ -940,7 +943,7 @@ file(WRITE "${CONFIG_HPP}" "${config_hpp_fixed}")
 message(STATUS "Generated ${CONFIG_HPP}")
 
 file(WRITE "${BSP_BINDINGS_CPP}"
-"// Generated from boards/stm32h723/board.ioc. Do not edit.\n\n"
+"// Generated from ${IOC}. Do not edit.\n\n"
 "#include \"bsp_adc.hpp\"\n"
 "#include \"bsp_pwm.hpp\"\n"
 "#include \"adc.h\"\n"
@@ -1042,7 +1045,7 @@ set(robot_dm_max_motors "4")
 set(robot_dmimu_include "")
 set(robot_dmimu_body "// DMIMU is not enabled in the robot device tree.\n")
 
-if(DEFINED ROBOT_CONFIG AND EXISTS "${ROBOT_CONFIG}")
+if(NOT robot_json STREQUAL "")
     if(HAS_DMIMU)
         string(JSON robot_dmimu_can_bus ERROR_VARIABLE json_err GET "${robot_json}" devices dmimu can_bus)
         if(json_err OR robot_dmimu_can_bus STREQUAL "")

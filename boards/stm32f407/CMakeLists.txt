@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.22)
 
 option(PNX_HOST_TESTS "Build host-only shared-logic tests" OFF)
-if(PNX_HOST_TESTS)
+if(PNX_HOST_TESTS AND NOT PNX_UNIFIED_ROOT)
     project(pnx_host_tests LANGUAGES CXX)
     if(CMAKE_CROSSCOMPILING)
         message(FATAL_ERROR
@@ -91,18 +91,14 @@ else()
     set(PNX_USB_DEVICE_IDENTITY_CONFIRMED_VALUE 0)
 endif()
 
-set(PNX_REPO_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../..")
-set(PNX_BOARD_ROOT "${CMAKE_CURRENT_SOURCE_DIR}")
+set(PNX_REPO_ROOT "${CMAKE_CURRENT_LIST_DIR}/../..")
+set(PNX_BOARD_ROOT "${CMAKE_CURRENT_LIST_DIR}")
 set(PNX_BSP_ROOT "${PNX_REPO_ROOT}/bsp/stm32f407")
 set(PNX_BOARD_IOC
     "${PNX_BOARD_ROOT}/dji_c_board_f407.ioc")
-set(PNX_BOARD_PARAMS_DEFAULT
-    "${PNX_REPO_ROOT}/configs/boards/stm32f407/params.json")
-set(PNX_BOARD_PARAMS
-    "${PNX_BOARD_PARAMS_DEFAULT}" CACHE FILEPATH
-    "Board params JSON used for config generation")
-set(PNX_BOARD_ROBOT_CONFIG
-    "${PNX_REPO_ROOT}/configs/boards/stm32f407/robot.json")
+if(NOT PNX_BOARD_CONFIG)
+    set(PNX_BOARD_CONFIG "${PNX_REPO_ROOT}/configs/config.json")
+endif()
 set(PNX_BOARD_CUBEMX_DIR
     "${PNX_BOARD_ROOT}/cmake/stm32cubemx")
 
@@ -110,12 +106,14 @@ if(NOT CMAKE_TOOLCHAIN_FILE)
     set(PNX_EMBEDDED_COMPILER_HINT
         "${CMAKE_C_COMPILER};${CMAKE_CXX_COMPILER}")
     if(PNX_EMBEDDED_COMPILER_HINT MATCHES "arm-none-eabi")
-        include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/gcc-arm-none-eabi.cmake")
+        include("${CMAKE_CURRENT_LIST_DIR}/cmake/gcc-arm-none-eabi.cmake")
     endif()
     unset(PNX_EMBEDDED_COMPILER_HINT)
 endif()
 
-project(pnx_embedded LANGUAGES C CXX ASM)
+if(NOT PNX_UNIFIED_ROOT)
+    project(pnx_embedded LANGUAGES C CXX ASM)
+endif()
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -126,16 +124,14 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 set(PNX_EMBEDDED_CONFIG_DIR "${PNX_REPO_ROOT}/configs")
-set(PNX_F4_CONFIG_CMAKE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
+set(PNX_F4_CONFIG_CMAKE_DIR "${CMAKE_CURRENT_LIST_DIR}/cmake")
 set(PNX_EMBEDDED_GENERATED_DIR "${CMAKE_BINARY_DIR}/generated")
 set(IOC "${PNX_BOARD_IOC}")
-set(PARAMS "${PNX_BOARD_PARAMS}")
-set(ROBOT_CONFIG "${PNX_BOARD_ROBOT_CONFIG}")
+set(CONFIG "${PNX_BOARD_CONFIG}")
 set(OUT_DIR "${PNX_EMBEDDED_GENERATED_DIR}")
 include("${PNX_F4_CONFIG_CMAKE_DIR}/generate_config.cmake")
 unset(IOC)
-unset(PARAMS)
-unset(ROBOT_CONFIG)
+unset(CONFIG)
 unset(OUT_DIR)
 
 set(PNX_EMBEDDED_SOURCES
@@ -230,7 +226,9 @@ if(PNX_F407_USART_ENABLED)
     endif()
 endif()
 
-add_executable(${PROJECT_NAME})
+if(NOT TARGET ${PROJECT_NAME})
+    add_executable(${PROJECT_NAME})
+endif()
 add_subdirectory("${PNX_BOARD_CUBEMX_DIR}" board_support)
 
 target_sources(${PROJECT_NAME} PRIVATE ${PNX_EMBEDDED_SOURCES})
